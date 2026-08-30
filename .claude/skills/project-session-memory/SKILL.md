@@ -9,6 +9,25 @@ description: Sets up automatic cross-session memory for a specific project/repo,
 열었을 때 포함) Claude가 이전 세션에서 무슨 일이 있었는지 다시 설명 없이
 알 수 있게, 훅으로 자동 저장·자동 로드를 구현합니다.
 
+## durable-session-log와 뭐가 다른가
+
+이 저장소에는 비슷한 목적의 `durable-session-log` 스킬도 있습니다. 그건
+Claude가 의미 있는 작업 단위가 끝날 때마다 `SESSION_LOG.md`에 직접
+기록해야 남는 **수동** 방식이라 가볍고 단순합니다 — 대신 기록을 깜빡하면
+그 세션은 통째로 사라집니다.
+
+이 스킬은 그 반대 극단입니다: `SessionEnd` 훅이 세션이 끝나기만 하면
+Claude의 판단 없이 원본 일부를 무조건 캡처합니다. 대신 그만큼 구조가
+복잡하고(정제 안 된 원본이 `.claude/memory/inbox/`에 쌓이고, 정리는
+다음 세션의 Claude에게 맡겨짐), 커밋 여부를 판단해야 할 원본 텍스트가
+생깁니다.
+
+**기록하는 습관이 있고 가볍게 가고 싶다면 `durable-session-log`를 먼저
+고려하세요.** 그걸 자주 깜빡하거나, 세션을 헷갈려서 새로 여는 일이 잦아서
+"최소한 뭔가는 자동으로 남았으면 좋겠다"는 요구가 있을 때 이 스킬을
+씁니다. 한 프로젝트에 둘 다 설치하면 SessionStart 훅이 두 번 실행되어
+같은 맥락이 중복으로 컨텍스트에 실릴 수 있으니, 보통은 하나만 고릅니다.
+
 ## 왜 Stop 훅이 아니라 SessionEnd + SessionStart인가
 
 가장 먼저 떠오르는 방법은 "세션이 끝날 때 Stop 훅으로 요약을 시키자"지만,
