@@ -49,3 +49,7 @@ inbox를 정리할 때 이 파일 아래에 날짜와 함께 핵심만 append하
   동시에 열어두고 지켜볼 때 사람 손이 안 닿는 저장소일수록 다른 작업이 끼어들어
   충돌날 수 있다는 걸 실증함 — "PR 상태 확인해줘" 요청이 오면 mergeable_state를
   꼭 같이 확인할 것.
+- `who-ate-my-cheesecake` PR #6은 사용자가 직접(`closed_by: tigermorning`)
+  코멘트 없이 닫음 — 이유는 GitHub API로 확인 불가, 사용자에게 물어봤지만
+  아직 답 없음. 남은 4개 PR(my-skills #5, korean-subtitle-corrector #4,
+  subtitle-tc-generator #1, todo-app #1)만 계속 추적 중.
