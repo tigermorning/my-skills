@@ -41,8 +41,10 @@ description: Sets up automatic cross-session memory for a specific project/repo,
 그래서 역할을 나눕니다:
 
 - **SessionEnd** (기계적, 빠름): 방금 끝난 세션의 transcript 꼬리 부분을
-  그대로 `.claude/memory/inbox/<session_id>.md`에 저장만 합니다. 요약
-  안 함, 판단 안 함 — 그냥 원본 캡처.
+  그대로 `.claude/memory/inbox/<session_id>.md`에 저장하고, 그 파일 하나만
+  로컬 `git commit`까지 합니다 (`git add`/`commit --only`를 이 파일에만
+  한정해서, 사용자가 작업 중이던 다른 staged 변경을 절대 같이 쓸어담지
+  않습니다). 요약 안 함, 판단 안 함 — 그냥 원본 캡처 + 로컬 커밋.
 - **SessionStart** (판단은 다음 세션의 Claude가): 새 세션이 시작되면
   `.claude/memory/session-log.md`(정제된 누적 요약)와 아직 정리 안 된
   `.claude/memory/inbox/*.md`(원본 캡처)를 컨텍스트로 주입합니다. 그리고
@@ -52,6 +54,19 @@ description: Sets up automatic cross-session memory for a specific project/repo,
   실제 요약 시점과 품질은 그 세션의 Claude 판단에 맡깁니다 — 하지만 그
   전까지도 inbox 원본이 이미 컨텍스트에 들어가 있으므로 "이전 세션 내용을
   전혀 모른다"는 상황은 생기지 않습니다.
+
+**`git push`는 SessionEnd가 하지 않습니다.** 처음에는 SessionEnd가 커밋
+후 바로 push까지 하도록 만들었는데, Claude Code의 auto-mode 안전
+분류기가 그 설치 자체를 막았습니다 — 세션이 끝날 때마다 사람 개입 없이
+원격에 push하는 훅은, 로컬 디스크만 건드리는 훅과는 리스크 수준이
+다르다고 판단한 것으로 보입니다. 그래서 SessionEnd는 로컬 커밋까지만
+하고, 실제 push는 그 이후 정상적인 작업 흐름(Claude가 다른 이유로 push할
+때, 또는 사용자가 직접 push할 때) 안에서 자연스럽게 실려 나가는 걸
+전제로 합니다. 이건 완전한 보장이 아닙니다 — 그 세션이 끝난 뒤 아무도
+다시 push하지 않은 채로 컨테이너가 영구히 회수되면, 로컬 커밋인 채로
+같이 사라집니다. 다만 이건 "커밋은 했는데 push를 깜빡한" 흔한 개발
+상황과 같은 수준의 리스크일 뿐, 이 스킬이 새로 만들어낸 위험은
+아닙니다.
 
 ## 설치 절차 (대상 프로젝트에 적용)
 
@@ -99,12 +114,15 @@ description: Sets up automatic cross-session memory for a specific project/repo,
    있어 `timeout`을 넉넉히 잡습니다. `SessionStart`/`SessionEnd` 둘 다
    `matcher`는 생략해도 모든 경우(startup/resume/clear 등)에 걸립니다.
 
-3. `.claude/memory/`와 `.claude/memory/inbox/`를 만들고, 팀과 공유할
-   프로젝트라면 `.gitignore`에 `.claude/memory/inbox/`를 추가할지
-   사용자에게 물어보세요 (원본 대화 캡처는 노이즈가 많고 민감한 내용이
-   섞일 수 있어 커밋하지 않는 편이 보통 낫습니다). `session-log.md`는
-   정제된 요약이라 커밋해서 팀원과 공유해도 되는지도 사용자 선호에
-   맡기세요.
+3. `.claude/memory/`와 `.claude/memory/inbox/`를 만듭니다. **`inbox/`를
+   gitignore하지 마세요** — SessionEnd가 이 파일을 실제로 `git commit`
+   하므로, gitignore하면 애초에 커밋 자체가 실패합니다 (git이 무시된
+   경로에 add하는 걸 거부함). 대신 이는 원본 대화 캡처가 결국 이
+   저장소의 git 히스토리에 (커밋 상태로, 그리고 보통은 이후 어느 시점의
+   push로) 남는다는 뜻이므로, public 저장소이거나 다른 사람이 히스토리를
+   볼 수 있는 곳이라면 설치 전에 사용자에게 이 점을 확인하세요.
+   `session-log.md`는 정제된 요약이라 커밋해서 팀원과 공유해도 되는지도
+   마찬가지로 사용자 선호에 맡기세요.
 4. `jq`가 설치돼 있는지 확인하세요 (`command -v jq`) — 두 스크립트 모두
    transcript의 JSONL을 파싱하는 데 사용합니다. 없으면 설치를 안내하거나,
    그 환경에서 무리라면 이 스킬 적용이 어렵다고 사용자에게 알리세요.
@@ -124,8 +142,17 @@ description: Sets up automatic cross-session memory for a specific project/repo,
   실행에 옮겨야 합니다 (컨텍스트에 안내가 있다고 자동으로 되는 게
   아니라, 이어지는 대화에서 "적당한 시점에" 실행돼야 하는 일임을
   기억하세요).
+- **`git push`를 자동으로 하지 않습니다** — SessionEnd는 로컬 커밋까지만
+  합니다. Claude Code auto-mode 분류기가 "세션마다 무인으로 push하는
+  훅" 설치를 막았기 때문입니다. 즉 커밋된 캡처가 실제로 원격에 올라가
+  다음 세션(특히 새 컨테이너로 완전히 새로 시작하는 세션)까지 살아남는
+  건, 그 이후 누군가(Claude든 사용자든)가 정상적인 흐름에서 push를 할
+  때에 달려 있습니다. 세션이 끝난 뒤 아무 push도 없이 컨테이너가
+  영구히 회수되면, 그 세션의 캡처는 로컬 커밋인 채로 함께 사라질 수
+  있습니다.
 - **다른 프로젝트와 메모리를 공유하지 않습니다** — 저장 위치가 각
   프로젝트의 `.claude/memory/`이므로 프로젝트별로 완전히 분리됩니다.
 - **비밀번호·토큰 같은 민감정보를 걸러주지 않습니다** — transcript를
-  그대로 캡처하므로, 세션 중 민감정보가 오갔다면 inbox 파일에도 그대로
-  남습니다. 커밋 전에는 항상 내용을 확인하세요.
+  그대로 캡처해서 커밋하므로, 세션 중 민감정보가 오갔다면 inbox 파일과
+  git 히스토리에도 그대로 남습니다. 이 스킬을 켜기 전에, 그 저장소의
+  히스토리를 볼 수 있는 사람 전체를 염두에 두고 괜찮은지 판단하세요.
