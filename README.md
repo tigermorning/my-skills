@@ -50,6 +50,14 @@ Windows Git Bash 등에서 터미널 명령어(curl, git commit -m, python -c �
 사람이 직접 대조하고, 확실한 버그는 즉시 근본 원인을 고치고, 판단이 필요한
 애매한 사례는 코드를 건드리지 않고 플래그만 남기는 반복 절차입니다.
 
+### durable-session-log — 세션마다 컨테이너가 새로 뜨는 환경에서 맥락 이어가기
+
+Claude Code on the web처럼 세션마다 컨테이너가 새로 뜨는 원격 환경에서는 로컬
+디스크에 남긴 맥락이 세션이 끝나면 사라집니다. `korean-subtitle-corrector`에
+적용하며 확립한 패턴으로, git에 커밋되는 `SESSION_LOG.md`와 이를 세션 시작
+시 자동으로 불러오는 SessionStart hook을 만들어 결정 사항·미해결 질문이
+다음 세션(또는 다른 기기)까지 이어지게 합니다.
+
 ### external-search-cache-proxy — 쿼터 있는 외부 검색 API는 캐시+검증 프록시로
 
 `Fridge2Plate`(포크해서 참고 중인 프로젝트)의 YouTube Data API 연동 코드를
