@@ -27,9 +27,13 @@ inbox를 정리할 때 이 파일 아래에 날짜와 함께 핵심만 append하
     후 테스트 통과를 확인하고 커밋해야 함.
   - 두 저장소 모두 PR을 만들 때 base 브랜치가 `master`(not `main`)였음 —
     기본 브랜치명을 가정하지 말고 `git remote show origin`으로 확인할 것.
-- `project-session-memory`/`durable-session-log` 스킬이 목적이 겹쳐서, 삭제하지
-  않고 SKILL.md·README 양쪽에 "언제 뭘 쓸지" 구분을 추가하는 쪽으로 정리함
-  (durable-session-log = 수동/가벼움, project-session-memory = 자동 캡처/무거움).
+- `project-session-memory`/`durable-session-log` 스킬 중복 문제로 이 저장소
+  안에서 왔다 갔다가 있었음: (1) 처음엔 둘 다 유지 + 구분 설명 추가,
+  (2) 다른 동시 세션이 `durable-session-log`를 삭제하고 하나로 통합(PR #7
+  머지), (3) 또 다른 동시 세션이 그 통합을 다시 revert해서 durable-session-log가
+  복원됨. **지금(이 노트 시점) 카탈로그엔 둘 다 다시 존재함.** 같은 저장소를
+  여러 세션이 동시에 건드리면서 같은 결정이 반복적으로 뒤집힌 사례 — 다음
+  세션은 이 항목이 또 바뀌어 있을 수 있으니 README/SKILL.md를 실제로 확인할 것.
 - `.claude/memory/inbox/`는 원래 프라이버시 때문에 gitignore했었는데, 원격
   환경에서는 gitignore된 파일이 다음 세션으로 절대 안 넘어간다는 걸 실제
   검증(새 원격 세션 spawn + 클린 clone 테스트)으로 확인함. 그래서 SessionEnd가
@@ -42,14 +46,21 @@ inbox를 정리할 때 이 파일 아래에 날짜와 함께 핵심만 append하
   같은 수준의 리스크).
 - PR 확인 규칙을 5개 저장소(my-skills, korean-subtitle-corrector,
   subtitle-tc-generator, who-ate-my-cheesecake, todo-app)에 전부 복사하고 각각
-  PR을 열어 구독함. my-skills PR(#5)은 작업 중 다른 세션이 master에 두 건을
-  머지하면서(#7 스킬 통합, #8 세션메모리 자동커밋) `session-log.md`가 충돌났음
-  — 같은 날짜 헤딩 아래 서로 다른 주제 항목이라 양쪽을 순서대로 다 유지하는
-  방식으로 해결(`git merge origin/master`, README는 자동 병합됨). 여러 PR을
-  동시에 열어두고 지켜볼 때 사람 손이 안 닿는 저장소일수록 다른 작업이 끼어들어
-  충돌날 수 있다는 걸 실증함 — "PR 상태 확인해줘" 요청이 오면 mergeable_state를
-  꼭 같이 확인할 것.
+  PR을 열어 구독함. my-skills PR(#5)은 다른 동시 세션들이 master에 계속
+  커밋을 얹으면서(스킬 통합/revert, 세션메모리 자동커밋 등) `session-log.md`가
+  반복해서 충돌났음 — 같은 날짜 헤딩 아래 서로 다른 주제 항목이라 매번 양쪽을
+  순서대로 다 유지하는 방식으로 해결(`git merge origin/master`, README는
+  거의 항상 자동 병합됨). 여러 PR을 동시에 열어두고 지켜볼 때, 특히 다른
+  세션들이 활발히 건드리는 저장소는 체크인마다 mergeable_state를 다시 확인해야
+  함 — 한 번 clean이어도 다음 체크인엔 dirty로 바뀔 수 있다.
 - `who-ate-my-cheesecake` PR #6은 사용자가 직접(`closed_by: tigermorning`)
   코멘트 없이 닫음 — 이유는 GitHub API로 확인 불가, 사용자에게 물어봤지만
   아직 답 없음. 남은 4개 PR(my-skills #5, korean-subtitle-corrector #4,
   subtitle-tc-generator #1, todo-app #1)만 계속 추적 중.
+- `project-session-memory`를 실제로 다른 프로젝트 3곳에 설치함:
+  `subtitle-tc-generator`(master 직접 push), `who-ate-my-cheesecake`(PR #7
+  머지), `korean-subtitle-corrector`(PR #6 머지, 기존 revert된
+  durable-session-log 자리를 대체). 세 곳 다 설치 전 가짜 stdin으로 훅을
+  직접 실행해 검증 후 커밋함. 사용자가 "다른 프로젝트도 필요하면 나중에
+  더 설치해달라"고 함 — 앞으로 활성 프로젝트가 생기면 이 패턴(레포 관례
+  확인 → 설치 → 훅 테스트 → 커밋/PR)을 그대로 반복하면 됨.

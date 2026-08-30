@@ -73,6 +73,16 @@ Windows Git Bash 등에서 터미널 명령어(curl, git commit -m, python -c �
 `session-start-regulation-check`(국립국어원 어문 규정 확인용)를 일반화한
 것입니다.
 
+### durable-session-log — 세션마다 컨테이너가 새로 뜨는 환경에서 맥락 이어가기
+
+Claude Code on the web처럼 세션마다 컨테이너가 새로 뜨는 원격 환경에서는 로컬
+디스크에 남긴 맥락이 세션이 끝나면 사라집니다. `korean-subtitle-corrector`에
+적용하며 확립한 패턴으로, git에 커밋되는 `SESSION_LOG.md`와 이를 세션 시작
+시 자동으로 불러오는 SessionStart hook을 만들어 결정 사항·미해결 질문이
+다음 세션(또는 다른 기기)까지 이어지게 합니다. 기록은 그때그때 Claude가
+직접 적어야 남는 **수동** 방식이라 가볍습니다 — 자동으로 뭔가가 남길
+원하면 아래 `project-session-memory`를 참고하세요.
+
 ### external-search-cache-proxy — 쿼터 있는 외부 검색 API는 캐시+검증 프록시로
 
 `Fridge2Plate`(포크해서 참고 중인 프로젝트)의 YouTube Data API 연동 코드를
@@ -85,29 +95,28 @@ Maps, OpenAI 등)를 통합할 때, 클라이언트가 직접 부르지 않게 �
 
 ### project-session-memory — 프로젝트별 세션 간 기억 자동화
 
-세션을 헷갈려서 새로 열거나 대화가 여러 세션으로 나뉠 때마다 맥락을 다시
-설명해야 하는 문제를 해결합니다. 다른 스킬들과 달리 SKILL.md 지침만이
-아니라 실제 훅 스크립트(`scripts/session-memory-end.sh`,
-`scripts/session-memory-start.sh`)를 함께 담고 있어서, 적용하려는
-프로젝트의 `.claude/hooks/`와 `.claude/settings.json`에 실제로 설치해야
-작동합니다. `Stop` 훅은 매 턴마다 발동해서 부적합하다는 것을 확인한 뒤,
-세션 종료 시 원본만 빠르게 캡처하는 `SessionEnd`와 다음 세션 시작 시 그
-캡처를 다시 컨텍스트로 얹어주는 `SessionStart`의 조합으로 설계했습니다.
-세션이 끝나기만 하면 Claude의 판단 없이 최소한의 원본이 자동으로
-로컬 커밋까지 되어서, 기록을 깜빡해 맥락이 통째로 사라지는 일이 없습니다
-(한때 이 역할을 하던 수동 기록 방식의 `durable-session-log` 스킬은 이
-스킬로 통합됐습니다 — 자세한 배경은 이 스킬의 SKILL.md 참고). 다만
-`git push`까지는 자동으로 하지 않습니다 — 세션마다 무인으로 push하는
-훅은 Claude Code auto-mode 분류기가 설치를 막았기 때문에, 실제 push는
-이후 정상적인 작업 흐름에 맡기고, 커밋된 원본이 git 히스토리에 남는다는
-점(gitignore 불가)까지 포함해 자세한 트레이드오프는 SKILL.md에
-정리해뒀습니다.
+설명해야 하는 문제를, `durable-session-log`보다 한 단계 더 자동화해서
+해결합니다. 다른 스킬들과 달리 SKILL.md 지침만이 아니라 실제 훅 스크립트
+(`scripts/session-memory-end.sh`, `scripts/session-memory-start.sh`)를
+함께 담고 있어서, 적용하려는 프로젝트의 `.claude/hooks/`와
+`.claude/settings.json`에 실제로 설치해야 작동합니다. `Stop` 훅은 매 턴마다
+발동해서 부적합하다는 것을 확인한 뒤, 세션 종료 시 원본만 빠르게 캡처하는
+`SessionEnd`와 다음 세션 시작 시 그 캡처를 다시 컨텍스트로 얹어주는
+`SessionStart`의 조합으로 설계했습니다. `durable-session-log`는 Claude가
+기록을 직접 적어야 남는 수동 방식이라 적기를 깜빡하면 아무것도 안 남지만,
+이 스킬은 세션이 끝나기만 하면 최소한의 원본이 자동으로 남습니다 — 대신
+구조가 더 복잡하고(정제 안 된 원본이 `inbox/`에 쌓임), 커밋 이력에 세션
+원문이 남을 수 있어 별도로 gitignore 여부를 판단해야 합니다. 기록하는
+습관이 있다면 `durable-session-log`로 충분하고, 그걸 자주 깜빡하거나
+세션을 헷갈려서 새로 여는 일이 잦다면 이 스킬을 씁니다. 한 프로젝트에
+둘 다 설치할 필요는 없습니다 — SessionStart 훅이 중복으로 실행돼 같은
+내용이 두 번 컨텍스트에 실릴 수 있습니다.
 
 ### project-kickoff — PRD·MVP 없이는 코드부터 짜지 않기
 
 새 프로젝트를 시작할 때(또는 기존 프로젝트의 방향을 크게 다시 잡을 때) PRD와
 MVP 범위 정의를 다른 모든 작업보다 먼저 게이트로 두고, 그 다음부터는
-project-session-memory, 의미 있는 단위마다 PR, README 최신화, 시크릿 관리,
+durable-session-log, 의미 있는 단위마다 PR, README 최신화, 시크릿 관리,
 PRD 성공 기준에 묶인 완료 정의를 프로젝트 내내 유지하는 체크리스트입니다.
 이미 PRD/MVP가 확정된 프로젝트에 기능을 하나 더 얹는 상황에는 게이트를
 다시 요구하지 않습니다.
