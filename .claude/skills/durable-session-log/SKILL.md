@@ -1,72 +1,95 @@
 ---
 name: durable-session-log
-description: For any project revisited across many separate Claude Code sessions — especially ephemeral remote/web sessions where the container and its home directory are thrown away between sessions — keep a git-committed session log file and wire a SessionStart hook to auto-inject it at the start of every session. This makes cross-session continuity survive container resets, unlike anything stored outside the repo (e.g. under ~/.claude), which vanishes when the container is recycled. Pairs with decision-log: this is the mechanism that keeps decision-log's record alive and loaded without relying on remembering to check it.
+description: In remote/ephemeral environments where a fresh container spins up per session (Claude Code on the web, CI-driven agents, etc.), session context does not survive between sessions unless it is committed to git. Set up a git-tracked SESSION_LOG.md plus a SessionStart hook that automatically re-loads it at the start of each new session. Applies to any project run from such an environment, regardless of language or domain.
 ---
 
 # Durable Session Log
 
-세션마다 컨테이너가 새로 뜨는 원격 환경에서는, 저장소에 커밋되지 않은
-정보는 전부 사라집니다. 세션 간 기억을 유지하려면 로그 파일을 **저장소에
-커밋**하고, 세션 시작 시 자동으로 그걸 불러오는 hook을 걸어야 합니다.
+컨테이너가 세션마다 새로 뜨는 원격 환경(Claude Code on the web 등)에서는 이전
+세션의 맥락이 자동으로 남지 않습니다. 로컬 디스크는 세션이 끝나면 사라지므로,
+**git 커밋으로 남긴 것만 다음 세션에 이어집니다.** 이 스킬은 그 맥락을 저장소
+안에 로그 파일로 남기고, SessionStart hook으로 세션 시작 시 자동으로 불러오게
+만듭니다.
+
+기록은 Claude가 의미 있는 작업 단위가 끝날 때 **직접 적어야** 남는 수동
+방식입니다 — 가볍지만, 적기를 깜빡하면 그 세션은 사라집니다. 기록을 자주
+깜빡하거나 세션을 헷갈려서 새로 여는 일이 잦아 "최소한 뭔가는 자동으로
+남았으면" 싶다면, 이 저장소의 `project-session-memory` 스킬(SessionEnd
+훅으로 무조건 원본을 캡처하는 더 무거운 버전)을 대신 고려하세요. 한
+프로젝트에 둘 다 설치할 필요는 없습니다.
 
 ## 왜 필요한가
 
-`decision-log` 스킬은 "답하기 전에 기록을 확인하라"고 하지만, 그 확인이
-"모델이 기억해서 파일을 여는 것"에 의존하면 똑같이 깜빡할 수 있습니다.
-게다가 Claude Code on the web 같은 원격 세션은 비활성 상태가 되면
-컨테이너가 회수되고, 다음 세션은 완전히 새 컨테이너에서 저장소를 다시
-클론해서 시작합니다. `~/.claude`나 홈 디렉터리에만 저장되는 정보(예:
-서드파티 메모리 플러그인의 로컬 DB)는 이 리셋에서 살아남지 못합니다 —
-저장소에 커밋된 파일만 확실하게 다음 세션에도 남습니다.
+- 원격 세션은 매번 저장소를 새로 clone한 컨테이너에서 시작한다. 이전 세션에서
+  어떤 결정을 왜 내렸는지, 무엇을 미뤘는지는 커밋 메시지나 코드만으로는 잘
+  드러나지 않는 경우가 많다.
+- 노트북/PC 등 여러 기기를 오가며 작업할 때도 마찬가지다 — 세션 상태가 기기에
+  묶여 있으면 기기를 바꾸는 순간 맥락이 끊긴다.
+- git에 커밋된 파일은 두 문제를 동시에 해결한다: 컨테이너가 사라져도 남고,
+  어느 기기에서 pull하든 동기화된다.
 
 ## 인식 신호 (다음 중 하나라도 해당하면 적용)
 
-- 이 프로젝트를 여러 번의 개별 Claude Code 세션에 걸쳐 계속 다시 찾아온다
-  (특히 원격/웹 세션처럼 세션마다 컨테이너가 새로 뜨는 환경).
-- "지난 세션에 뭘 했는지" 또는 "이 프로젝트에서 이미 확인/결정한 것"을
-  매번 대화로 다시 설명해야 하는 게 반복되고 있다.
-- 메모리 유지를 홈 디렉터리 상태(플러그인 로컬 DB, 전역 설정)에만 의존하고
-  있는데, 그 환경이 세션마다 초기화되는지 확인 안 된 상태다.
-- 반대로, 한 번 열고 끝나는 일회성 작업이거나 항상 로컬 고정 머신에서만
-  작업한다면(홈 디렉터리가 세션 간 유지됨) 이 절차는 불필요할 수 있다.
+- 세션마다 컨테이너가 새로 뜨는 원격 실행 환경(Claude Code on the web, 기타
+  클라우드 기반 에이전트 세션)에서 작업 중이다.
+- 세션 간 이어지는 맥락(결정 사항, 미해결 질문, 다음에 할 일)이 존재하는데
+  지금은 대화가 끝나면 사라진다.
+- 여러 기기를 오가며 같은 프로젝트를 진행하고, 기기 간 맥락 동기화가
+  필요하다.
+- 반대로, 세션이 로컬 디스크에 영구히 남는 환경(개인 PC에서 상시 실행하는
+  세션)이라면 이 패턴은 과잉이다 — 적용하지 않는다.
 
 ## 절차
 
-1. **로그 파일 위치 확정**: 저장소 안에 `.claude/SESSION_LOG.md` 같은
-   커밋 대상 파일을 만든다 (`.gitignore`에 걸려있지 않은지 확인).
-2. **SessionStart hook 등록**: `.claude/settings.json`에 세션 시작 시
-   이 파일 내용을 자동으로 컨텍스트에 주입하는 hook을 건다.
+1. **로그 파일 생성**: 프로젝트 루트에 `.claude/SESSION_LOG.md`를 만든다.
+   파일 맨 위에 이 파일의 목적(세션 간 맥락 유지, SessionStart hook이 자동으로
+   불러온다는 점, 의미 있는 작업 단위가 끝날 때마다 날짜/변경 내용/결정
+   사항/미해결 질문을 추가하라는 지침)을 짧게 적는다.
+2. **hook 등록**: `.claude/settings.json`에 `SessionStart` hook을 추가한다
+   (기존 설정이 있으면 병합한다):
+
    ```json
    {
      "hooks": {
        "SessionStart": [
-         { "hooks": [ { "type": "command",
-           "command": "cat \"$CLAUDE_PROJECT_DIR/.claude/SESSION_LOG.md\" 2>/dev/null || true" } ] }
+         {
+           "hooks": [
+             {
+               "type": "command",
+               "command": "cat \"$CLAUDE_PROJECT_DIR/.claude/SESSION_LOG.md\" 2>/dev/null || true"
+             }
+           ]
+         }
        ]
      }
    }
    ```
-   이렇게 하면 모델이 "기억해서 파일을 열어야겠다"고 판단할 필요 없이,
-   harness가 매 세션 시작마다 강제로 주입한다.
-3. **세션 종료 시 기록**: 의미 있는 작업 단위가 끝날 때마다(또는 세션을
-   마무리할 때) `decision-log` 형식대로 날짜, 결론, 근거를 이 파일에
-   추가한다.
-4. **커밋**: 로그 파일 변경을 **반드시 커밋하고 푸시**한다. 로컬/컨테이너
-   안에만 남겨두면 다음 세션이 새 컨테이너에서 시작할 때 사라진다.
-5. **길이 관리**: 파일이 너무 길어지면(수십 개 세션 누적) 오래된 항목을
-   요약해서 압축하거나 월별 파일로 분리한다 — 매 세션 시작마다 전체를
-   주입하는 비용을 억제한다.
+
+   `cat ... || true`로 파일이 아직 없거나 읽기 실패해도 세션 시작이 막히지
+   않게 한다.
+3. **검증**: hook 명령을 직접 실행해 로그 내용이 그대로 출력되는지 확인한다.
+   ```bash
+   CLAUDE_PROJECT_DIR="$(pwd)" bash -c 'cat "$CLAUDE_PROJECT_DIR/.claude/SESSION_LOG.md" 2>/dev/null || true'
+   ```
+4. **커밋·push**: 두 파일을 커밋하고 origin에 push한다. main/master에 바로
+   push하지 않는 저장소 관례가 있다면 그것을 따른다.
+5. **이후 사용**: 의미 있는 작업 단위(기능 하나 완료, 중요한 결정, 다음
+   세션에 넘길 미해결 질문 등)가 끝날 때마다 `SESSION_LOG.md`에 날짜별
+   항목을 추가하고 커밋한다. 로그가 무한정 길어지면 오래된 항목은 요약하거나
+   별도 아카이브 파일로 옮긴다 — 매 세션 시작마다 전체가 hook으로 출력되므로
+   너무 길면 컨텍스트를 낭비한다.
 
 ## 하지 않는 것
 
-- 로그를 홈 디렉터리나 세션 로컬 상태에만 남기고 커밋하지 않기 (원격
-  환경에서는 다음 세션에 사라짐)
-- SessionStart hook 없이 "다음에 파일을 열어봐야지"라고 모델의 기억에만
-  의존하기
-- 로그를 무한정 누적만 하고 요약/정리 없이 방치하기
+- 세션 상태를 로컬 파일이나 컨테이너 안에만 남기고 커밋하지 않기 — 다음
+  세션에서 사라진다.
+- 로그를 무한정 append만 하고 정리하지 않기 — hook이 매번 전체를 출력하므로
+  길어질수록 세션 시작 비용이 커진다.
+- 민감 정보(토큰, 자격증명, 개인정보)를 로그에 적지 않기 — git 이력에 영구히
+  남는다.
 
-## 관련 스킬
+## 실제 적용 사례
 
-기록을 확인하고 검증하는 행동 원칙은 [[decision-log]]를 참고하세요. 이
-스킬은 그 기록이 세션 간에 실제로 살아남고 자동으로 불러와지게 만드는
-인프라입니다.
+`korean-subtitle-corrector` 저장소에 이 패턴을 그대로 적용해
+`.claude/SESSION_LOG.md` + `.claude/settings.json`의 `SessionStart` hook으로
+설치한 사례가 있다 (2026-08-30). 새 프로젝트에 적용할 때 참고할 수 있다.
