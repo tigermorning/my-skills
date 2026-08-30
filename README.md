@@ -67,6 +67,15 @@ Windows Git Bash 등에서 터미널 명령어(curl, git commit -m, python -c �
 `session-start-regulation-check`(국립국어원 어문 규정 확인용)를 일반화한
 것입니다.
 
+### durable-session-log — 세션 기억은 커밋된 파일 + SessionStart hook으로
+
+Claude Code on the web처럼 세션마다 컨테이너가 새로 뜨는 원격 환경에서는,
+저장소에 커밋되지 않은 정보(홈 디렉터리의 플러그인 로컬 DB 등)는 다음
+세션에 살아남지 못합니다. 세션 로그를 저장소에 커밋하고 SessionStart
+hook으로 매 세션 시작 시 자동 주입하면, 모델이 기억해서 파일을 여는 것에
+의존하지 않고도 확실하게 맥락이 이어집니다. `decision-log`가 요구하는
+기록을 실제로 살아남게 만드는 인프라 역할입니다.
+
 ### external-search-cache-proxy — 쿼터 있는 외부 검색 API는 캐시+검증 프록시로
 
 `Fridge2Plate`(포크해서 참고 중인 프로젝트)의 YouTube Data API 연동 코드를
