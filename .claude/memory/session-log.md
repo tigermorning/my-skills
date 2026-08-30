@@ -7,13 +7,15 @@ inbox를 정리할 때 이 파일 아래에 날짜와 함께 핵심만 append하
 
 ## 2026-08-30
 
-- `project-session-memory`/`durable-session-log` 스킬 중복 문제로 이 저장소
-  안에서 왔다 갔다가 있었음: (1) 처음엔 둘 다 유지 + 구분 설명 추가,
-  (2) 다른 동시 세션이 `durable-session-log`를 삭제하고 하나로 통합(PR #7
-  머지), (3) 또 다른 동시 세션이 그 통합을 다시 revert해서 durable-session-log가
-  복원됨. **지금(이 노트 시점) 카탈로그엔 둘 다 다시 존재함.** 같은 저장소를
-  여러 세션이 동시에 건드리면서 같은 결정이 반복적으로 뒤집힌 사례 — 다음
-  세션은 이 항목이 또 바뀌어 있을 수 있으니 README/SKILL.md를 실제로 확인할 것.
+- `project-session-memory`/`durable-session-log` 스킬 중복 문제: 여러 동시
+  세션에 걸쳐 (1) 둘 다 유지+구분 설명 → (2) 통합(PR #7 머지) → (3) 통합
+  revert → (4) **사용자가 직접 "하나로 정리해달라"고 요청**해서
+  `durable-session-log`를 최종 삭제하고 `project-session-memory` 하나로
+  확정. `project-kickoff` SKILL.md의 참조도 `durable-session-log` →
+  `project-session-memory`로 갱신함. **이게 최종 결정입니다 — 다시 되돌리지
+  마세요.** (같은 저장소를 여러 세션이 동시에 건드리면서 이 결정이 세 번
+  뒤집힌 사례이니, 만약 또 뒤집혀 있는 걸 발견하면 사용자에게 왜 그런지
+  물어보고 넘어갈 것.)
 - `.claude/memory/inbox/`는 원래 프라이버시 때문에 gitignore했었는데, 원격
   환경에서는 gitignore된 파일이 다음 세션으로 절대 안 넘어간다는 걸 실제
   검증(새 원격 세션 spawn + 클린 clone 테스트)으로 확인함. 그래서 SessionEnd가
