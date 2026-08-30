@@ -40,3 +40,12 @@ inbox를 정리할 때 이 파일 아래에 날짜와 함께 핵심만 append하
   걸 전제로 함 — 즉 컨테이너가 완전히 회수되기 전에 아무 push도 없으면 그 세션의
   캡처는 여전히 유실될 수 있음 (이건 알려진 한계로 남겨둠, 일반적인 미푸시 커밋과
   같은 수준의 리스크).
+- PR 확인 규칙을 5개 저장소(my-skills, korean-subtitle-corrector,
+  subtitle-tc-generator, who-ate-my-cheesecake, todo-app)에 전부 복사하고 각각
+  PR을 열어 구독함. my-skills PR(#5)은 작업 중 다른 세션이 master에 두 건을
+  머지하면서(#7 스킬 통합, #8 세션메모리 자동커밋) `session-log.md`가 충돌났음
+  — 같은 날짜 헤딩 아래 서로 다른 주제 항목이라 양쪽을 순서대로 다 유지하는
+  방식으로 해결(`git merge origin/master`, README는 자동 병합됨). 여러 PR을
+  동시에 열어두고 지켜볼 때 사람 손이 안 닿는 저장소일수록 다른 작업이 끼어들어
+  충돌날 수 있다는 걸 실증함 — "PR 상태 확인해줘" 요청이 오면 mergeable_state를
+  꼭 같이 확인할 것.
