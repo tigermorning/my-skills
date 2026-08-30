@@ -11,6 +11,13 @@ description: In remote/ephemeral environments where a fresh container spins up p
 안에 로그 파일로 남기고, SessionStart hook으로 세션 시작 시 자동으로 불러오게
 만듭니다.
 
+기록은 Claude가 의미 있는 작업 단위가 끝날 때 **직접 적어야** 남는 수동
+방식입니다 — 가볍지만, 적기를 깜빡하면 그 세션은 사라집니다. 기록을 자주
+깜빡하거나 세션을 헷갈려서 새로 여는 일이 잦아 "최소한 뭔가는 자동으로
+남았으면" 싶다면, 이 저장소의 `project-session-memory` 스킬(SessionEnd
+훅으로 무조건 원본을 캡처하는 더 무거운 버전)을 대신 고려하세요. 한
+프로젝트에 둘 다 설치할 필요는 없습니다.
+
 ## 왜 필요한가
 
 - 원격 세션은 매번 저장소를 새로 clone한 컨테이너에서 시작한다. 이전 세션에서

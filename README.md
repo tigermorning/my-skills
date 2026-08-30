@@ -56,7 +56,9 @@ Claude Code on the web처럼 세션마다 컨테이너가 새로 뜨는 원격 �
 디스크에 남긴 맥락이 세션이 끝나면 사라집니다. `korean-subtitle-corrector`에
 적용하며 확립한 패턴으로, git에 커밋되는 `SESSION_LOG.md`와 이를 세션 시작
 시 자동으로 불러오는 SessionStart hook을 만들어 결정 사항·미해결 질문이
-다음 세션(또는 다른 기기)까지 이어지게 합니다.
+다음 세션(또는 다른 기기)까지 이어지게 합니다. 기록은 그때그때 Claude가
+직접 적어야 남는 **수동** 방식이라 가볍습니다 — 자동으로 뭔가가 남길
+원하면 아래 `project-session-memory`를 참고하세요.
 
 ### external-search-cache-proxy — 쿼터 있는 외부 검색 API는 캐시+검증 프록시로
 
@@ -67,6 +69,26 @@ Maps, OpenAI 등)를 통합할 때, 클라이언트가 직접 부르지 않게 �
 쿼리에 쓰기 전에 형식 정규식으로 검증합니다. (참고: 이 스킬은 직접 겪은
 실수가 아니라 남의 코드를 읽고 배운 패턴이라, 실전에서 검증되면서 계속
 다듬어질 여지가 있습니다.)
+
+### project-session-memory — 프로젝트별 세션 간 기억 자동화
+
+세션을 헷갈려서 새로 열거나 대화가 여러 세션으로 나뉠 때마다 맥락을 다시
+설명해야 하는 문제를, `durable-session-log`보다 한 단계 더 자동화해서
+해결합니다. 다른 스킬들과 달리 SKILL.md 지침만이 아니라 실제 훅 스크립트
+(`scripts/session-memory-end.sh`, `scripts/session-memory-start.sh`)를
+함께 담고 있어서, 적용하려는 프로젝트의 `.claude/hooks/`와
+`.claude/settings.json`에 실제로 설치해야 작동합니다. `Stop` 훅은 매 턴마다
+발동해서 부적합하다는 것을 확인한 뒤, 세션 종료 시 원본만 빠르게 캡처하는
+`SessionEnd`와 다음 세션 시작 시 그 캡처를 다시 컨텍스트로 얹어주는
+`SessionStart`의 조합으로 설계했습니다. `durable-session-log`는 Claude가
+기록을 직접 적어야 남는 수동 방식이라 적기를 깜빡하면 아무것도 안 남지만,
+이 스킬은 세션이 끝나기만 하면 최소한의 원본이 자동으로 남습니다 — 대신
+구조가 더 복잡하고(정제 안 된 원본이 `inbox/`에 쌓임), 커밋 이력에 세션
+원문이 남을 수 있어 별도로 gitignore 여부를 판단해야 합니다. 기록하는
+습관이 있다면 `durable-session-log`로 충분하고, 그걸 자주 깜빡하거나
+세션을 헷갈려서 새로 여는 일이 잦다면 이 스킬을 씁니다. 한 프로젝트에
+둘 다 설치할 필요는 없습니다 — SessionStart 훅이 중복으로 실행돼 같은
+내용이 두 번 컨텍스트에 실릴 수 있습니다.
 
 ### project-kickoff — PRD·MVP 없이는 코드부터 짜지 않기
 
