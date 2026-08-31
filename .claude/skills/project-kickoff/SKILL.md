@@ -1,6 +1,6 @@
 ---
 name: project-kickoff
-description: Before starting substantive work on a new project (or re-scoping an existing one with no documented PRD/MVP), gate all other work behind writing a PRD and defining the MVP slice first, then keep a fixed hygiene checklist running throughout the project (durable session log, PR-per-meaningful-unit, up-to-date README, secret hygiene, a definition of done tied to the PRD's success criteria). Applies regardless of language or domain; skip once the gate is already passed for a project, and skip heavier process (ADRs, issue trackers) for small solo projects. Also skip the gate entirely for a one-off technical spike/PoC whose deliverable is a single yes/no feasibility answer, not a product with users.
+description: Before starting substantive work on a new project (or re-scoping an existing one with no documented PRD/MVP), gate all other work behind writing a PRD and defining the MVP slice first, then keep a fixed hygiene checklist running throughout the project (cross-session memory via project-session-memory, PR-per-meaningful-unit, up-to-date README, secret hygiene, a definition of done tied to the PRD's success criteria). Applies regardless of language or domain; skip once the gate is already passed for a project, and skip heavier process (ADRs, issue trackers) for small solo projects. Also skip the gate entirely for a one-off technical spike/PoC whose deliverable is a single yes/no feasibility answer, not a product with users.
 ---
 
 # Project Kickoff
@@ -14,7 +14,7 @@ description: Before starting substantive work on a new project (or re-scoping an
   채로 진행되고, 나중에 범위가 계속 옆으로 번집니다(scope creep).
 - 매 프로젝트마다 "이번엔 뭘 먼저 해야 하지"를 새로 판단하지 않도록, 순서와
   체크리스트를 고정해두면 잊지 않고 체계적으로 시작할 수 있습니다.
-- 이 저장소의 다른 스킬([[durable-session-log]] 등)과 결합하면 프로젝트
+- 이 저장소의 다른 스킬([[project-session-memory]] 등)과 결합하면 프로젝트
   시작부터 세션 간 맥락 유지까지 하나의 일관된 워크플로우가 됩니다.
 
 ## 인식 신호 (다음 중 하나라도 해당하면 적용)
@@ -48,9 +48,10 @@ description: Before starting substantive work on a new project (or re-scoping an
 
 ### 이후 상시 체크리스트 (프로젝트가 끝날 때까지 유지)
 
-4. **durable-session-log 적용**: `.claude/SESSION_LOG.md` + SessionStart
-   hook. 세션마다 컨테이너가 새로 뜨는 원격 환경이면 필수, 로컬에 상시 남는
-   환경이면 선택 — 자세한 절차는 [[durable-session-log]] 참고.
+4. **project-session-memory 적용**: SessionStart/SessionEnd hook으로
+   세션 간 맥락을 자동으로 이어간다. 세션마다 컨테이너가 새로 뜨는 원격
+   환경이면 필수, 로컬에 상시 남는 환경이면 선택 — 자세한 절차는
+   [[project-session-memory]] 참고.
 5. **의미 있는 작업 단위마다 브랜치 + PR**: 기능 하나, 버그 하나, 결정 하나
    단위로 쪼개서 만든다.
 6. **README를 최신 상태로 유지**: 설치법·실행법이 실제 코드와 어긋나지
@@ -87,4 +88,4 @@ PRD 질문(대상 사용자·성공 기준) 자체가 성립하지 않았다. �
 
 ## 관련 스킬
 
-세션 간 맥락 유지는 [[durable-session-log]]를 참고하세요.
+세션 간 맥락 유지는 [[project-session-memory]]를 참고하세요.
