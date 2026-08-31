@@ -105,3 +105,15 @@ inbox를 정리할 때 이 파일 아래에 날짜와 함께 핵심만 append하
   머지 전 사용자가 "PR 번호가 8개인데 왜 5개만 머지하냐"고 물어봐서, PR
   번호는 저장소별 전체 PR 카운터라 이 작업과 무관한 번호일 뿐이라고 설명함
   (예: who-ate-my-cheesecake는 이 작업 이전에 이미 7개 PR이 있어서 8번이 됨).
+
+### 2026-08-30: PR #7 merge, 언어 혼용 조사
+
+- `durable-session-log`를 `project-session-memory`로 통합하는 PR #7을 merge함.
+  이제 이 레포의 세션 기억 스킬은 `project-session-memory` 하나뿐.
+- 사용자가 "깃허브에 한국어/영어가 혼재된 것 같다"고 지적 → `my-skills`와
+  `subtitle-tc-generator`(별도 세션에 위임해서 조사) 둘 다 스캔한 결과 실수로
+  섞인 곳은 없었음. 두 레포 모두 "메타데이터(커밋/PR/frontmatter)=영어,
+  설명·문서=한국어"라는 동일한 의도된 분리 패턴을 따르고 있었음 — 사용자가
+  느낀 "혼재"는 이 패턴이 여러 레포에 걸쳐 보이면서 생긴 인상으로 추정됨.
+  korean-subtitle-corrector, who-ate-my-cheesecake, blog는 아직 미확인
+  (사용자가 원하면 이어서 조사).
