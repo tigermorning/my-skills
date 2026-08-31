@@ -26,10 +26,9 @@ inbox를 정리할 때 이 파일 아래에 날짜와 함께 핵심만 append하
   걸 전제로 함 — 즉 컨테이너가 완전히 회수되기 전에 아무 push도 없으면 그 세션의
   캡처는 여전히 유실될 수 있음 (이건 알려진 한계로 남겨둠, 일반적인 미푸시 커밋과
   같은 수준의 리스크).
-- `project-session-memory`를 실제로 다른 프로젝트 3곳에 설치함:
+- `project-session-memory`를 실제로 다른 프로젝트 4곳에 설치함:
   `subtitle-tc-generator`(master 직접 push), `who-ate-my-cheesecake`(PR #7
   머지), `korean-subtitle-corrector`(PR #6 머지, 기존 revert된
-  durable-session-log 자리를 대체). 세 곳 다 설치 전 가짜 stdin으로 훅을
-  직접 실행해 검증 후 커밋함. 사용자가 "다른 프로젝트도 필요하면 나중에
-  더 설치해달라"고 함 — 앞으로 활성 프로젝트가 생기면 이 패턴(레포 관례
-  확인 → 설치 → 훅 테스트 → 커밋/PR)을 그대로 반복하면 됨.
+  durable-session-log 자리를 대체), `todo-app`(master 직접 push, 커밋
+  `4b5dcd2`). 매번 설치 전 가짜 stdin으로 훅을 직접 실행해 검증 후 커밋함.
+  이 패턴(레포 관례 확인 → 설치 → 훅 테스트 → 커밋/PR)을 그대로 반복하면 됨.
