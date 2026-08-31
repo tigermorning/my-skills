@@ -1,6 +1,6 @@
 ---
 name: project-kickoff
-description: Before starting substantive work on a new project (or re-scoping an existing one with no documented PRD/MVP), gate all other work behind writing a PRD and defining the MVP slice first, then keep a fixed hygiene checklist running throughout the project (cross-session memory via project-session-memory, PR-per-meaningful-unit, up-to-date README, secret hygiene, a definition of done tied to the PRD's success criteria). Applies regardless of language or domain; skip once the gate is already passed for a project, and skip heavier process (ADRs, issue trackers) for small solo projects.
+description: Before starting substantive work on a new project (or re-scoping an existing one with no documented PRD/MVP), gate all other work behind writing a PRD and defining the MVP slice first, then keep a fixed hygiene checklist running throughout the project (cross-session memory via project-session-memory, PR-per-meaningful-unit, up-to-date README, secret hygiene, a definition of done tied to the PRD's success criteria). Applies regardless of language or domain; skip once the gate is already passed for a project, and skip heavier process (ADRs, issue trackers) for small solo projects. Also skip the gate entirely for a one-off technical spike/PoC whose deliverable is a single yes/no feasibility answer, not a product with users.
 ---
 
 # Project Kickoff
@@ -27,6 +27,10 @@ description: Before starting substantive work on a new project (or re-scoping an
   문서가 아직 없다.
 - 반대로, 이미 PRD/MVP 정의가 끝난 프로젝트에서 다음 기능 하나를 더 얹는
   상황이면 이 게이트는 이미 통과한 것이므로 매번 다시 요구하지 않는다.
+- 반대로, "이 기술/엔진이 이걸 지원하는가" 같은 예/아니오 하나만 확인하면
+  끝나는 1회성 기술 스파이크·PoC라면 이 게이트를 아예 적용하지 않는다.
+  대상 사용자·성공 기준 같은 PRD의 질문 자체가 이런 산출물에는 성립하지
+  않는다 — README에 결과(PASS/FAIL)만 기록하면 충분하다.
 
 ## 절차
 
@@ -70,6 +74,17 @@ description: Before starting substantive work on a new project (or re-scoping an
   목록에 적어두고 MVP 완료 후로 미룬다.
 - 작은 프로젝트에 ADR·이슈 트래커 같은 무거운 프로세스를 처음부터 강제하지
   않기.
+
+## 실제 적용 사례
+
+이 스킬을 만든 뒤 실제 프로젝트 4곳(`subtitle-tc-generator`,
+`who-ate-my-cheesecake`, `spum-maze-poc`, `korean-subtitle-corrector`)에
+대조해봤는데, 전부 게이트가 필요 없는 경우였다: 두 곳은 이미 `PRD.md`/
+`PRD_LOCKED_PRINCIPLES.md`가 있었고, 한 곳(`spum-maze-poc`)은 "SPUM 엔진이
+걸어다닐 수 있는 공간을 지원하는가"만 확인하고 끝난 1회성 기술 스파이크라
+PRD 질문(대상 사용자·성공 기준) 자체가 성립하지 않았다. 이 마지막 사례가
+위 "1회성 기술 스파이크·PoC는 제외" 조항의 근거다 — 실제로 대조해보기 전엔
+이 예외가 문서에 없었다.
 
 ## 관련 스킬
 
