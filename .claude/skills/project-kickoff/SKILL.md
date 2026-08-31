@@ -44,10 +44,10 @@ description: Before starting substantive work on a new project (or re-scoping an
 
 ### 이후 상시 체크리스트 (프로젝트가 끝날 때까지 유지)
 
-4. **project-session-memory 적용**: SessionEnd/SessionStart hook으로 세션 간
-   맥락을 자동 캡처·로드. 세션마다 컨테이너가 새로 뜨는 원격 환경이면 필수,
-   로컬에 상시 남는 환경이면 선택 — 자세한 절차는 [[project-session-memory]]
-   참고.
+4. **project-session-memory 적용**: SessionStart/SessionEnd hook으로
+   세션 간 맥락을 자동으로 이어간다. 세션마다 컨테이너가 새로 뜨는 원격
+   환경이면 필수, 로컬에 상시 남는 환경이면 선택 — 자세한 절차는
+   [[project-session-memory]] 참고.
 5. **의미 있는 작업 단위마다 브랜치 + PR**: 기능 하나, 버그 하나, 결정 하나
    단위로 쪼개서 만든다.
 6. **README를 최신 상태로 유지**: 설치법·실행법이 실제 코드와 어긋나지
