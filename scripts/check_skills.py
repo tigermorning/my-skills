@@ -119,10 +119,13 @@ def check_discriminates(skill_dir, name, grade, rel):
         err(rel, f"grader for '{name}' passes the untouched fixture, so it cannot catch a broken run")
 
 
-def check_hooks():
-    r = subprocess.run([sys.executable, str(ROOT / "scripts/hooks/test_hooks.py")], capture_output=True, text=True, encoding="utf-8")
-    if r.returncode != 0:
-        err("scripts/hooks", r.stdout.strip() or r.stderr.strip())
+def check_self_tests():
+    """Run every test script that guards a tool: hook guards and skill-bundled checkers."""
+    tests = [ROOT / "scripts/hooks/test_hooks.py", *sorted(SKILLS.glob("*/scripts/test_*.py"))]
+    for t in tests:
+        r = subprocess.run([sys.executable, str(t)], capture_output=True, text=True, encoding="utf-8")
+        if r.returncode != 0:
+            err(t.relative_to(ROOT), r.stdout.strip() or r.stderr.strip())
 
 
 def main():
@@ -133,7 +136,7 @@ def main():
     for d in dirs:
         check_skill_md(d, names)
         check_evals(d, grade)
-    check_hooks()
+    check_self_tests()
     if errors:
         print("\n".join(f"FAIL {e}" for e in errors))
         print(f"{len(errors)} problem(s)")
