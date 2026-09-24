@@ -6,7 +6,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-HTML = '<button id="upload-btn">업로드</button><div data-testid="result-tab" class="tab-pane"></div>'
+HTML = '<button id="upload-btn">업로드</button><div data-testid="result-tab" class="tab-pane"></div><span>Compass</span>'
+JSX = 'export function CompassStrip() { return <div className="strip">N</div> }\nfunction ResultPanel() {}'
 
 GOOD = """# Feature map
 ### 업로드
@@ -22,6 +23,12 @@ CASES = [
     ("unknown selector fails", GOOD.replace("#upload-btn", "#download-btn"), 1),
     ("missing 검증 line fails", GOOD.replace("- 검증: 버튼 클릭 → 결과 탭 표시\n", ""), 1),
     ("unverified entry is skipped", GOOD.replace("`#upload-btn`", "`#ghost` (미확인)"), 0),
+    ("line number in 파일 fails", GOOD.replace("`static/index.html`", "`static/index.html:12`"), 1),
+    ("path::Symbol passes", GOOD.replace("`static/index.html`", "`static/index.html`, `src/Strip.tsx::CompassStrip`"), 0),
+    ("unknown path::Symbol fails", GOOD.replace("`static/index.html`", "`src/Strip.tsx::MissingThing`"), 1),
+    ("code identifier as selector fails", GOOD.replace("`.tab-pane`", "`CompassStrip`"), 1),
+    ("visible text as selector passes", GOOD.replace("`.tab-pane`", "`Compass`"), 0),
+    ("zero-width space fails", GOOD.replace("static/index.html", "static/​index.html"), 1),
 ]
 
 if __name__ == "__main__":
@@ -31,6 +38,8 @@ if __name__ == "__main__":
             root = Path(tmp)
             (root / "static").mkdir()
             (root / "static/index.html").write_text(HTML, encoding="utf-8")
+            (root / "src").mkdir()
+            (root / "src/Strip.tsx").write_text(JSX, encoding="utf-8")
             (root / "FEATURE_MAP.md").write_text(text, encoding="utf-8")
             r = subprocess.run([sys.executable, str(HERE / "check_feature_map.py"), str(root)], capture_output=True)
             if r.returncode != want:
