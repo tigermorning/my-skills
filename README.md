@@ -152,6 +152,7 @@ worktree로 띄워 "이미 고쳐졌는지"를 봅니다. 사용자가 이미 �
 
 - 훅 등록 위치: `~/.claude/settings.json`의 `hooks.PreToolUse`. 모든 프로젝트에 적용됩니다.
 - 다른 컴퓨터에서는 같은 항목을 추가하고 경로만 바꾸면 됩니다.
+- 스킬 eval을 돌리는 방법과 결과는 `scripts/skill-evals/README.md`에 있습니다.
 
 ## 사용법
 
