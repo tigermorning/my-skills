@@ -1,0 +1,77 @@
+{
+  "skill_name": "real-world-review-cycle",
+  "evals": [
+    {
+      "id": 1,
+      "name": "phone-normalizer-real-csv",
+      "prompt": "고객 연락처 정리용 format_phone 을 고쳤어 ({dir}/phone.py). 테스트(test_phone.py)도 다 통과하니까 customers.csv 전체에 돌려서 phone_clean 컬럼을 붙인 customers_clean.csv 를 만들어 줘.",
+      "files": [
+        "fixtures/phone-cleanup/"
+      ],
+      "expected_output": "실데이터로 돌려 02 지역번호·15xx 대표번호 오포맷을 발견하고 근본 수정. +82·내선 같은 애매한 건 억지 변환 대신 플래그.",
+      "assertions": [
+        {
+          "id": "seoul-fixed",
+          "text": "최종 format_phone: '02-123-4567'→'02-123-4567', '0212345678'→'02-1234-5678', '(02) 3456-7890'→'02-3456-7890'",
+          "check": "script"
+        },
+        {
+          "id": "rep-number-fixed",
+          "text": "최종 format_phone: '1588-1234'→'1588-1234', '15771234'→'1577-1234'",
+          "check": "script"
+        },
+        {
+          "id": "ambiguous-flagged",
+          "text": "'+82 ...', '(내선 23)' 행을 억지로 변환하지 않고 사람 확인 대상으로 표시하거나 보고함",
+          "check": "judge"
+        },
+        {
+          "id": "tests-still-pass",
+          "text": "기존 test_phone.py 가 여전히 통과",
+          "check": "script"
+        },
+        {
+          "id": "bug-vs-judgment",
+          "text": "보고서가 불일치를 '확실한 버그(수정함)'와 '판단 필요(남겨둠)'로 나눠 설명함",
+          "check": "judge"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "sentence-splitter-real-news",
+      "prompt": "split_sentences 테스트 통과했어 ({dir}/splitter.py). 이거 뉴스 요약 파이프라인에 넣어도 될지 확인하고, 필요하면 고쳐 줘. 샘플 기사는 sample_news.txt 에 있어.",
+      "files": [
+        "fixtures/sentence-split/"
+      ],
+      "expected_output": "샘플 기사로 돌려 소수점·약어·말줄임표 오분리를 발견·수정. 따옴표 안 문장부호처럼 애매한 건 플래그.",
+      "assertions": [
+        {
+          "id": "decimal-kept",
+          "text": "최종 split_sentences 가 '3.5%', '1,385.2원', '1.2조' 를 쪼개지 않음",
+          "check": "script"
+        },
+        {
+          "id": "ellipsis-kept",
+          "text": "'...' 이 빈 조각('.')을 만들지 않음",
+          "check": "script"
+        },
+        {
+          "id": "tests-still-pass",
+          "text": "기존 test_splitter.py 가 여전히 통과",
+          "check": "script"
+        },
+        {
+          "id": "ran-on-sample",
+          "text": "수정 전에 sample_news.txt 로 실제 실행한 기록이 transcript 에 있음",
+          "check": "transcript"
+        },
+        {
+          "id": "quote-flagged",
+          "text": "따옴표 안 마침표(\"...불안하다. 섣부른...\") 처리를 애매한 사례로 보고하거나 근거를 들어 결정함",
+          "check": "judge"
+        }
+      ]
+    }
+  ]
+}

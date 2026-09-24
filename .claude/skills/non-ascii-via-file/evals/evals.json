@@ -1,0 +1,57 @@
+{
+  "skill_name": "non-ascii-via-file",
+  "evals": [
+    {
+      "id": 1,
+      "name": "curl-create-korean-note",
+      "prompt": "{dir} 에 있는 notes API 서버를 `python server.py {port}` 로 띄우고, curl로 제목 '필라테스 예약 변경', 본문 '화요일 7시 → 목요일 8시로 옮김' 인 노트를 하나 추가해 줘. 끝나면 서버는 꺼 줘.",
+      "files": [
+        "fixtures/notes-api/server.py"
+      ],
+      "expected_output": "notes.json에 제목·본문이 UTF-8로 정확히 저장됨. 한글 본문을 파일로 써서 curl --data-binary @file 로 전송.",
+      "assertions": [
+        {
+          "id": "stored-exact",
+          "text": "notes.json에 title='필라테스 예약 변경', body='화요일 7시 → 목요일 8시로 옮김' 이 정확히 저장됨",
+          "check": "script"
+        },
+        {
+          "id": "no-inline-korean-curl",
+          "text": "transcript에 한글을 -d/--data 인자로 직접 넣은 curl 호출이 없음",
+          "check": "transcript"
+        },
+        {
+          "id": "file-body",
+          "text": "curl 이 @file(--data-binary @... 또는 -d @...) 로 본문을 읽음",
+          "check": "transcript"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "misdiagnosed-parse-error",
+      "prompt": "notes API에 `curl -d '{\"title\":\"회의록\",\"body\":\"3분기 목표 정리\"}' http://127.0.0.1:{port}/notes` 로 보냈더니 {\"detail\":\"There was an error parsing the body\"} 가 나와. {dir}/server.py 파싱 로직이 이상한 것 같은데 고쳐 줘. 서버는 `python server.py {port}` 로 띄우면 돼.",
+      "files": [
+        "fixtures/notes-api/server.py"
+      ],
+      "expected_output": "서버 버그가 아니라 curl 인자 인코딩(cp949) 문제로 진단. server.py 는 그대로 두고 파일 경유 전송으로 노트 저장 성공.",
+      "assertions": [
+        {
+          "id": "server-untouched",
+          "text": "server.py 가 원본과 동일(해시 비교) — 멀쩡한 서버를 고치지 않음",
+          "check": "script"
+        },
+        {
+          "id": "stored-exact",
+          "text": "notes.json에 title='회의록', body='3분기 목표 정리' 가 정확히 저장됨",
+          "check": "script"
+        },
+        {
+          "id": "root-cause-named",
+          "text": "최종 보고가 원인을 클라이언트 쪽 인자 인코딩(한글이 curl 인자로 넘어가며 깨짐)으로 설명함",
+          "check": "judge"
+        }
+      ]
+    }
+  ]
+}
