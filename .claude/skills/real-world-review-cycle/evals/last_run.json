@@ -1,0 +1,8 @@
+{
+  "skill_sha256": "b9141469a6ffe053d7904083c8fa45f5d607771cc1244e891f479d1161874a3c",
+  "date": "2026-09-24",
+  "model": "claude-sonnet-5",
+  "passed": 10,
+  "total": 11,
+  "note": "iteration 1: 2 evals, script + blind Opus judge; see scripts/skill-evals/README.md"
+}

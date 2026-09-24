@@ -8,7 +8,12 @@ Each check turns a rule that used to live only in review comments into a failure
 - graders discriminate: running them on the untouched fixtures must fail at least one
   script check (a grader that passes broken code proves nothing)
 - hook guards pass their table tests
+- a skill with evals/ has evals/last_run.json whose skill_sha256 matches the current
+  SKILL.md, so a skill edit without a fresh eval run fails
+- code comments in scripts carry the reason, not history: no dates and no
+  who-said-it provenance (agents tend to write irrelevant history as comments)
 """
+import hashlib
 import importlib.util
 import json
 import re
@@ -119,6 +124,38 @@ def check_discriminates(skill_dir, name, grade, rel):
         err(rel, f"grader for '{name}' passes the untouched fixture, so it cannot catch a broken run")
 
 
+def check_eval_freshness(skill_dir):
+    evals = skill_dir / "evals"
+    if not (evals / "evals.json").exists():
+        return
+    rel = (evals / "last_run.json").relative_to(ROOT)
+    current = hashlib.sha256((skill_dir / "SKILL.md").read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    try:
+        recorded = json.loads((evals / "last_run.json").read_text(encoding="utf-8")).get("skill_sha256")
+    except FileNotFoundError:
+        return err(rel, "missing: run the evals and record the result")
+    if recorded != current:
+        err(rel, "SKILL.md changed since the last eval run; rerun the evals and update last_run.json "
+                 f"(python scripts/skill-evals/record_run.py {skill_dir.name} ...)")
+
+
+HISTORY = re.compile(r"\b20\d\d-\d\d-\d\d\b|\buser said\b|사용자가 말|님이 말", re.I)
+
+
+def check_comment_hygiene():
+    for path in [*ROOT.glob("scripts/**/*.py"), *SKILLS.glob("*/scripts/**/*.py")]:
+        if "__pycache__" in path.parts:
+            continue
+        in_doc = False
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            quotes = line.count('"""') + line.count("'''")
+            is_comment = in_doc or line.lstrip().startswith("#") or quotes
+            if quotes % 2:
+                in_doc = not in_doc
+            if is_comment and HISTORY.search(line):
+                err(f"{path.relative_to(ROOT)}:{n}", "comment records history (date or who said it); keep only the reason")
+
+
 def check_self_tests():
     """Run every test script that guards a tool: hook guards and skill-bundled checkers."""
     tests = [ROOT / "scripts/hooks/test_hooks.py", *sorted(SKILLS.glob("*/scripts/test_*.py"))]
@@ -136,6 +173,8 @@ def main():
     for d in dirs:
         check_skill_md(d, names)
         check_evals(d, grade)
+        check_eval_freshness(d)
+    check_comment_hygiene()
     check_self_tests()
     if errors:
         print("\n".join(f"FAIL {e}" for e in errors))

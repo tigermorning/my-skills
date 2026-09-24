@@ -3,7 +3,7 @@
 Why: the user submits repo URLs for assignments and keeps pushing fixes after
 submitting. A URL pinned to a commit, tag or branch (/tree/..., /blob/...,
 /commit/..., /releases/tag/...) freezes the submission, and later fixes never
-reach the grader (happened 2026-09-17). Only the repo base URL is allowed.
+reach the grader. Only the repo base URL is allowed.
 
 Input: hook JSON on stdin. Output: a deny decision on stdout, or nothing.
 """
@@ -35,8 +35,7 @@ def decide(payload):
             base = re.match(r"github\.com/[\w.-]+/[\w.-]+", m.group(0), re.IGNORECASE).group(0)
             return (
                 f"커밋·태그·브랜치에 고정된 GitHub URL을 입력하려고 합니다: {m.group(0)}. "
-                f"제출할 때는 저장소 기본 URL만 씁니다: https://{base} "
-                "(사용자 규칙, 2026-09-17)"
+                f"제출할 때는 저장소 기본 URL만 씁니다: https://{base}"
             )
     return None
 

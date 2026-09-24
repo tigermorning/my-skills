@@ -1,9 +1,9 @@
 """PreToolUse hook: deny curl commands whose arguments carry non-ASCII text.
 
 Why: on Windows + Git Bash, /mingw64/bin/curl sends `-d '한글'` as cp949 bytes, not
-UTF-8 (reproduced 2026-09-24). The server then rejects the body and the failure
-looks like a server bug. Writing the body to a file and sending it with
-`--data-binary @file` avoids it. See .claude/skills/non-ascii-via-file.
+UTF-8. The server then rejects the body and the failure looks like a server bug.
+Writing the body to a file and sending it with `--data-binary @file` avoids it.
+See .claude/skills/non-ascii-via-file.
 
 Input: hook JSON on stdin. Output: a deny decision on stdout, or nothing.
 """

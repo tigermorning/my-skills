@@ -15,6 +15,8 @@ Usage: python check_feature_map.py <project-root> [--map FEATURE_MAP.md]
 - The map must not contain invisible characters (zero-width space etc.), which make
   copied URLs and selectors silently fail.
 - Every feature section (`### ...`) must have `파일` and `검증` lines.
+- FEATURE_MAP.md must have the shared sections an agent needs before driving the
+  app: 실행 방법, 시작 전제조건, 조작 관례, 증거와 건너뜀 보고.
 Exit code 1 on any problem.
 """
 import re
@@ -24,6 +26,7 @@ from pathlib import Path
 SOURCE_EXT = {".html", ".htm", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".vue", ".svelte", ".py", ".css", ".jinja", ".j2", ".ui", ".qml"}
 SKIP_DIRS = {"node_modules", ".git", ".next", "dist", "build", "__pycache__", "venv", ".venv", ".claude", "worktrees"}
 BACKTICK = re.compile(r"`([^`]+)`")
+REQUIRED_SECTIONS = ["실행 방법", "시작 전제조건", "조작 관례", "증거와 건너뜀 보고"]
 INVISIBLE = re.compile("[​‌‍⁠﻿­]")
 BARE_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -102,6 +105,10 @@ def main():
         problems.append(f"'{current}' is missing {sorted({'파일', '검증'} - seen)}")
     if features == 0:
         problems.append("no feature sections (### ...) found")
+    headings = {l[3:].strip() for l in fmap.read_text(encoding="utf-8").splitlines() if l.startswith("## ")}
+    for section in REQUIRED_SECTIONS:
+        if not any(h.startswith(section) for h in headings):
+            problems.append(f"missing section '## {section}'")
 
     for p in problems:
         print(f"FAIL {p}")

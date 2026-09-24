@@ -10,6 +10,15 @@ HTML = '<button id="upload-btn">업로드</button><div data-testid="result-tab" 
 JSX = 'export function CompassStrip() { return <div className="strip">N</div> }\nfunction ResultPanel() {}'
 
 GOOD = """# Feature map
+## 실행 방법
+- python -m http.server
+## 시작 전제조건
+- 서버가 떠 있음
+## 조작 관례
+- 끝 상태를 폴링한다
+## 증거와 건너뜀 보고
+- 관찰한 것만 적는다
+## 기능
 ### 업로드
 - 사용자 경로: 첫 화면 → "업로드"
 - 선택자: `#upload-btn`, `[data-testid="result-tab"]`, `.tab-pane`
@@ -29,6 +38,8 @@ CASES = [
     ("code identifier as selector fails", GOOD.replace("`.tab-pane`", "`CompassStrip`"), 1),
     ("visible text as selector passes", GOOD.replace("`.tab-pane`", "`Compass`"), 0),
     ("zero-width space fails", GOOD.replace("static/index.html", "static/​index.html"), 1),
+    ("missing 시작 전제조건 section fails", GOOD.replace("## 시작 전제조건\n", ""), 1),
+    ("missing 증거 section fails", GOOD.replace("## 증거와 건너뜀 보고\n", ""), 1),
 ]
 
 if __name__ == "__main__":

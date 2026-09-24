@@ -1,0 +1,8 @@
+{
+  "skill_sha256": "e48f03208d590011cee178d1278de2412857444d151214d666f7a4e94724d3a0",
+  "date": "2026-09-24",
+  "model": "claude-sonnet-5,claude-haiku-4-5",
+  "passed": 10,
+  "total": 10,
+  "note": "rerun after step 6 was added: 2 evals x 2 models, script checks; no hook denials in transcripts"
+}
