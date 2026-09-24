@@ -40,6 +40,8 @@ Windows Git Bash 등에서 터미널 명령어(curl, git commit -m, python -c �
 쉽습니다. 이 스킬은 비ASCII 텍스트를 파일에 먼저 써두고 명령어가 그 파일을
 참조하게 만듭니다. 서버가 있는 프로젝트에 국한되지 않고, 한글이 포함된 값을 셸
 명령어로 넘기는 모든 상황에 적용됩니다.
+(2026-09-24 재현: 이 환경에서 깨지는 건 `curl -d`였고, `git commit -m`·`python` 인자는
+정상이었습니다. curl 쪽은 아래 "하드 가드"의 훅이 기계적으로 막습니다.)
 
 ### verify-then-code — 예외 있는 규칙은 코드보다 정답표 먼저
 
@@ -127,6 +129,25 @@ PoC에는 게이트를 아예 적용하지 않습니다(실제 프로젝트 4곳
 |---|---|---|
 | `session-start-regulation-check` | `korean-subtitle-corrector/.claude/skills/` | 프로젝트가 의존하는 외부 규정(국립국어원 어문 규정)이 세션 시작 시점 기준으로 개정됐는지 확인. **범용 스킬로 승격됨**: 이 패턴은 위의 `spec-freshness-check`로 일반화했습니다. 이 항목은 원형이 이 프로젝트에 남아있음을 기록하기 위해 유지합니다. |
 | `my-todo` | `todo-app/.claude/skills/` | 로컬 Todo 앱을 브라우저 대신 CLI(`cli.py`)로 조작. 이 앱 전용이라 재사용 불가하지만, "로컬 서버 있는 개인 앱을 CLI 스킬로 감싸는" 접근 자체는 다른 개인 프로젝트에도 적용 가능한 패턴. |
+
+## 하드 가드 (스킬·규칙을 기계적 강제로 바꾼 것)
+
+스킬과 CLAUDE.md 규칙은 에이전트가 잊을 수 있는 "소프트" 강제입니다.
+반복해서 지적한 규칙은 아래처럼 훅과 CI로 옮겨 두었습니다.
+
+| 가드 | 종류 | 막는 것 | 위치 |
+|---|---|---|---|
+| curl 한글 인자 | PreToolUse 훅 (Bash·PowerShell) | `curl -d '한글'`처럼 비ASCII가 든 curl 호출 | `scripts/hooks/guard_curl_non_ascii.py` |
+| 고정 GitHub URL | PreToolUse 훅 (브라우저 입력 도구) | `/tree/`·`/blob/`·`/commit/`·`/releases/tag/` URL 입력 | `scripts/hooks/guard_pinned_github_url.py` |
+| 스킬 구조 검사 | GitHub Actions `skills-ci` | 이름과 폴더 불일치, 깨진 `[[링크]]`, 잘못된 evals.json, 원본 픽스처를 통과시키는 채점기, 훅 테스트 실패 | `scripts/check_skills.py` |
+
+- 훅 등록 위치: `~/.claude/settings.json`의 `hooks.PreToolUse`. 모든 프로젝트에 적용됩니다.
+- 다른 컴퓨터에서는 같은 항목을 추가하고 경로만 바꾸면 됩니다.
+- 로컬에서 검사 돌리기:
+  ```bash
+  python scripts/check_skills.py
+  ```
+- 스킬 eval을 돌리는 방법과 결과는 `scripts/skill-evals/README.md`에 있습니다.
 
 ## 사용법
 
