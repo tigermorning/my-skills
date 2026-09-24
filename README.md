@@ -149,9 +149,14 @@ worktree로 띄워 "이미 고쳐졌는지"를 봅니다. 사용자가 이미 �
 | 고정 GitHub URL | PreToolUse 훅 (브라우저 입력 도구) | `/tree/`·`/blob/`·`/commit/`·`/releases/tag/` URL 입력 | `scripts/hooks/guard_pinned_github_url.py` |
 | 이름 기준 프로세스 종료 | PreToolUse 훅 (Bash·PowerShell) | `taskkill /IM`, `pkill`, `killall`, `Stop-Process -Name`처럼 같은 이름의 모든 프로세스를 죽이는 명령 | `scripts/hooks/guard_mass_kill.py` |
 | 복구할 수 없는 재귀 삭제 | PreToolUse 훅 (Bash·PowerShell) | 임시 폴더 밖에서 커밋 안 된 파일이나 git 밖 파일이 든 폴더의 `rm -rf` | `scripts/hooks/guard_recursive_delete.py` |
+| 스킬 구조 검사 | GitHub Actions `skills-ci` | 이름과 폴더 불일치, 깨진 `[[링크]]`, 잘못된 evals.json, 원본 픽스처를 통과시키는 채점기, eval을 다시 안 돌린 SKILL.md 수정, 날짜·경위가 적힌 코드 주석, 스크립트 셀프 테스트 실패 | `scripts/check_skills.py` |
 
 - 훅 등록 위치: `~/.claude/settings.json`의 `hooks.PreToolUse`. 모든 프로젝트에 적용됩니다.
 - 다른 컴퓨터에서는 같은 항목을 추가하고 경로만 바꾸면 됩니다.
+- 로컬에서 검사 돌리기:
+  ```bash
+  python scripts/check_skills.py
+  ```
 - 스킬 eval을 돌리는 방법과 결과는 `scripts/skill-evals/README.md`에 있습니다.
 
 ## 사용법
