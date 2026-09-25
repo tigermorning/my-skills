@@ -68,6 +68,32 @@ def build_prompt(ev, config, skill_md, job, port, user_port):
     return prefix + text + SUFFIX
 
 
+def exposure_problems(calls, config, skill):
+    """Why a run cannot be trusted as a measurement of `config`, or [] when it can.
+
+    Agents can load a stale copy of the skill through the Skill tool (~/.claude/skills), which
+    would score the wrong text for "skill" and leak the skill into "baseline".
+    """
+    problems = []
+    if any(n == "Skill" for n, _ in calls):
+        problems.append("agent called the Skill tool (may have loaded an installed copy, not the repo SKILL.md)")
+    if config == "skill":
+        want = f"skills/{skill}/skill.md"
+        opened = [i for n, i in calls
+                  if (n == "Read" and want in str(i.get("file_path", "")).replace("\\", "/").lower())
+                  or (n in ("Bash", "PowerShell") and want in str(i.get("command", "")).replace("\\", "/").lower())]
+        if not opened:
+            problems.append(f"agent never read {want}")
+    return problems
+
+
+def run_problems(calls, config, skill, transcript):
+    """exposure_problems plus a usage-limit check: a run cut off by the limit measured nothing."""
+    if "hit your session limit" in Path(transcript).read_text(encoding="utf-8", errors="replace"):
+        return ["usage limit hit during the run; rerun after it resets"]
+    return exposure_problems(calls, config, skill)
+
+
 def redact(text, skill):
     text = re.sub(r"\S*[\\/](?:jobs|skill-evals)[\\/]\S*", "[workdir]", text)
     text = re.sub(re.escape(skill), "[…]", text, flags=re.I)
@@ -207,7 +233,8 @@ def one_run(task, args, grade, pf):
     job_handle = ProcessJob()
     try:
         with open(transcript, "w", encoding="utf-8") as out:
-            proc = job_handle.popen([CLAUDE, "-p", "--model", model, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose"],
+            proc = job_handle.popen([CLAUDE, "-p", "--model", model, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose",
+                                     "--disallowedTools", "Skill"],
                                     stdin=subprocess.PIPE, stdout=out, stderr=subprocess.DEVNULL, cwd=job)
             try:
                 proc.communicate(prompt.encode("utf-8"), timeout=args.timeout)
@@ -224,7 +251,7 @@ def one_run(task, args, grade, pf):
         if user_pid and pf.port_owner(user_port) == user_pid:
             kill_pid(user_pid)
     return {**{k: task[k] for k in ("id", "config", "model", "n")}, "eval": ev["name"], "job": str(job), "transcript": str(transcript),
-            "seconds": round(time.monotonic() - started), "script": expectations, "report": final_report(transcript)}
+            "seconds": round(time.monotonic() - started), "invalid": run_problems(calls, config, skill, transcript), "script": expectations, "report": final_report(transcript)}
 
 
 def judge_run(res, ev, skill, judge_model):
@@ -311,6 +338,12 @@ def main():
         for e in r["script"] + r["judge"]:
             if not e["passed"]:
                 print(f"FAIL {r['id']} {r['eval']} {r['config']}/{r['model']}: {e['text']} | {str(e['evidence'])[:110]}")
+    invalid = [r for r in sorted(results, key=lambda x: x["id"]) if r["invalid"]]
+    for r in invalid:
+        print(f"INVALID {r['id']} {r['eval']} {r['config']}/{r['model']}: {'; '.join(r['invalid'])}")
+    if invalid:
+        print(f"{len(invalid)} run(s) did not measure their config; fix the setup and rerun. Nothing recorded.")
+        sys.exit(2)
     skill_rows = [(p, n) for (c, m), (p, n) in rows.items() if c == "skill"]
     passed, total = (sum(p for p, _ in skill_rows), sum(n for _, n in skill_rows))
     if args.record and total:

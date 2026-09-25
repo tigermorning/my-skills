@@ -44,7 +44,8 @@ def tool_calls(transcript):
             rec = json.loads(line)
         except json.JSONDecodeError:
             continue
-        content = (rec.get("message") or {}).get("content")
+        msg = rec.get("message") if isinstance(rec, dict) else None
+        content = msg.get("content") if isinstance(msg, dict) else None  # system records carry message as a string
         if not isinstance(content, list):
             continue
         for block in content:
@@ -350,6 +351,77 @@ def g_already_fixed(job, calls):
     ]
 
 
+CODE_EXT = r"\.(py|js|ts|tsx|go|rs|java|rb)$"
+
+
+def _first_code_write(calls):
+    """Index of the first call that creates a source file (Write/Edit, or a shell redirect)."""
+    for i, (n, inp) in enumerate(calls):
+        if n in ("Write", "Edit") and re.search(CODE_EXT, inp.get("file_path", ""), re.I):
+            return i
+        if n in ("Bash", "PowerShell") and re.search(r"(?:>|Set-Content|Out-File)\s*['\"]?[^\s'\"|&;]+\.(py|js|ts)", inp.get("command", "")):
+            return i
+    return None
+
+
+def _first_write_to(calls, pattern):
+    for i, (n, inp) in enumerate(calls):
+        if n in ("Write", "Edit") and re.search(pattern, inp.get("file_path", "").replace("\\", "/"), re.I):
+            return i
+    return None
+
+
+def _kickoff_docs(job):
+    return [p for p in Path(job).rglob("*.md") if re.search(r"prd|mvp", p.name, re.I)]
+
+
+def g_kickoff_gate(job, calls):
+    docs = _kickoff_docs(job)
+    text = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in docs)
+    doc_i = _first_write_to(calls, r"/[^/]*(prd|mvp)[^/]*\.md$")
+    code_i = _first_code_write(calls)
+    return [
+        exp("PRD 파일이 있고 성공 기준을 적음", docs and re.search(r"성공\s*기준|success criteri", text, re.I), f"docs={[d.name for d in docs]}"),
+        exp("MVP 범위가 정의됨", any(re.search(r"mvp", d.name, re.I) for d in docs) or re.search(r"^#+\s*.*MVP", text, re.M | re.I), f"docs={[d.name for d in docs]}"),
+        exp("PRD/MVP 파일이 첫 코드 파일보다 먼저 작성됨", doc_i is not None and (code_i is None or doc_i < code_i), f"doc_idx={doc_i} code_idx={code_i}"),
+    ]
+
+
+def g_spike(job, calls):
+    docs = _kickoff_docs(job)
+    ran = [c for c in shell_commands(calls) if re.search(r"fts5", c, re.I)]
+    return [
+        exp("PRD·MVP 문서를 만들지 않음", not docs, f"docs={[d.name for d in docs]}"),
+        exp("sqlite3 FTS5 를 실제로 실행해 확인함", ran, ran[0][:150] if ran else "none"),
+    ]
+
+
+def g_guardrails(job, calls):
+    cfg_path = Path(job) / "guardrails.json"
+    rules, valid, why = [], False, "no guardrails.json"
+    if cfg_path.exists():
+        try:
+            rules = json.loads(cfg_path.read_text(encoding="utf-8")).get("rules", [])
+            missing = [(r.get("id", "?"), k) for r in rules for k in ("id", "paths", "forbid", "message", "instead") if not r.get(k)]
+            valid, why = bool(rules) and not missing, f"{len(rules)} rules, missing={missing[:3]}"
+        except (json.JSONDecodeError, AttributeError) as e:
+            why = f"invalid: {e}"
+    checker = SKILLS / "project-kickoff/scripts/check_boundaries.py"
+    r = subprocess.run([sys.executable, str(checker), "--root", str(job)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    cfg_i = _first_write_to(calls, r"/guardrails\.json$")
+    code_i = _first_code_write(calls)
+    ran = [c for c in shell_commands(calls) if "check_boundaries" in c]
+    code = [p for p in Path(job).rglob("*.py") if ".git" not in p.parts and "__pycache__" not in p.parts]
+    body = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in code)
+    return [
+        exp("guardrails.json 이 있고 모든 규칙에 instead 등 필수 필드가 있음", valid, why),
+        exp("최종 상태에서 check_boundaries.py 통과", r.returncode == 0, (r.stdout + r.stderr).strip()[-150:]),
+        exp("guardrails.json 이 첫 코드 파일보다 먼저 작성됨", cfg_i is not None and (code_i is None or cfg_i < code_i), f"cfg_idx={cfg_i} code_idx={code_i}"),
+        exp("check_boundaries.py 를 실제로 실행한 기록이 있음", ran, ran[0][:150] if ran else "none"),
+        exp("add·list 를 구현한 코드가 있음", code and "add" in body and "list" in body, f"py files={len(code)}"),
+    ]
+
+
 GRADERS = {
     "fix-with-user-server-running": g_fix_with_user_server,
     "report-already-fixed": g_already_fixed,
@@ -359,6 +431,9 @@ GRADERS = {
     "sentence-splitter-real-news": g_splitter,
     "korean-particle-euro-ro": g_ro,
     "english-pluralize": g_plural,
+    "new-project-gate": g_kickoff_gate,
+    "spike-skips-gate": g_spike,
+    "guardrails-before-first-feature": g_guardrails,
 }
 
 if __name__ == "__main__":
