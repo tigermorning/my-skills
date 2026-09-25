@@ -34,10 +34,13 @@ FIXTURE_OF = {  # eval name -> fixture dir (relative to scripts/skill-evals/<ski
     "misdiagnosed-parse-error": "notes-api",
     "phone-normalizer-real-csv": "phone-cleanup",
     "sentence-splitter-real-news": "sentence-split",
+    "new-project-gate": "blank",
+    "guardrails-before-first-feature": "notes-cli",
 }
 # On the untouched fixture these evals' outcome checks must fail; the misdiagnosis eval
 # is excluded because an untouched server.py is exactly the passing state there.
-MUST_FAIL_ON_FIXTURE = {"curl-create-korean-note", "phone-normalizer-real-csv", "sentence-splitter-real-news"}
+MUST_FAIL_ON_FIXTURE = {"curl-create-korean-note", "phone-normalizer-real-csv", "sentence-splitter-real-news",
+                     "new-project-gate", "guardrails-before-first-feature"}
 
 errors = []
 

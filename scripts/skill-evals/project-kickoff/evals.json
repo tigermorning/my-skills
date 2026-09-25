@@ -1,0 +1,108 @@
+{
+  "skill_name": "project-kickoff",
+  "evals": [
+    {
+      "id": 1,
+      "name": "new-project-gate",
+      "prompt": "{dir} 는 빈 폴더야. 새 프로젝트를 시작할 거야: 읽은 책을 기록하는 개인용 파이썬 CLI(표준 라이브러리만). 만들어 줘. 사용자에게 되물을 수 없으니 필요한 건 스스로 정해서 진행해.",
+      "files": [
+        "fixtures/blank/"
+      ],
+      "expected_output": "기능 코드보다 먼저 PRD(대상·이유·성공 기준)와 MVP 범위를 파일로 확정하고, 그 뒤에 구현.",
+      "assertions": [
+        {
+          "id": "prd-with-success-criteria",
+          "text": "PRD 파일이 존재하고 성공 기준을 적음",
+          "check": "script"
+        },
+        {
+          "id": "mvp-defined",
+          "text": "MVP 범위가 MVP.md 또는 PRD 안의 MVP 섹션으로 정의됨",
+          "check": "script"
+        },
+        {
+          "id": "prd-before-code",
+          "text": "PRD/MVP 파일이 첫 코드 파일보다 먼저 작성됨",
+          "check": "script"
+        },
+        {
+          "id": "mvp-is-small-slice",
+          "text": "MVP가 PRD 전체가 아니라 가장 작은 끝까지 도는 조각이고, MVP 밖 기능이 보류 목록으로 분리됨",
+          "check": "judge"
+        },
+        {
+          "id": "built-only-mvp",
+          "text": "구현한 기능이 MVP 범위 안에 있고, 보류로 적은 기능을 미리 만들지 않음",
+          "check": "judge"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "spike-skips-gate",
+      "prompt": "{dir} 에서 확인 하나만 해 줘: 이 컴퓨터의 파이썬 sqlite3 가 FTS5 전문 검색을 지원해? 나중에 쓸지 말지 정하려는 거라 '된다/안 된다'만 알면 돼.",
+      "files": [
+        "fixtures/blank/"
+      ],
+      "expected_output": "PRD·MVP 없이 실제로 FTS5 가능 여부를 실행해 확인하고 예/아니오로 답함.",
+      "assertions": [
+        {
+          "id": "no-prd-for-spike",
+          "text": "PRD·MVP 문서를 만들지 않음",
+          "check": "script"
+        },
+        {
+          "id": "ran-real-check",
+          "text": "sqlite3 FTS5를 실제로 실행해 확인함",
+          "check": "script"
+        },
+        {
+          "id": "yes-no-answer",
+          "text": "보고서가 된다/안 된다를 하나로 명확히 답함 (실행 여부는 ran-real-check 가 본다)",
+          "check": "judge"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "guardrails-before-first-feature",
+      "prompt": "{dir}/PRD.md 대로 첫 기능(add, list)을 구현해 줘. 이 프로젝트는 앞으로도 네가 기능을 계속 추가할 거야. 사용자에게 되물을 수 없으니 스스로 정해서 진행해.",
+      "files": [
+        "fixtures/notes-cli/"
+      ],
+      "expected_output": "첫 기능 전에 guardrails.json(규칙마다 instead 포함)과 check_boundaries 실행을 갖추고, 그 뒤에 구현.",
+      "assertions": [
+        {
+          "id": "guardrails-valid",
+          "text": "guardrails.json 이 있고 모든 규칙에 id·paths·forbid·message·instead 가 있음",
+          "check": "script"
+        },
+        {
+          "id": "boundaries-pass",
+          "text": "최종 상태에서 check_boundaries.py 가 통과함",
+          "check": "script"
+        },
+        {
+          "id": "guardrails-before-code",
+          "text": "guardrails.json 이 첫 코드 파일보다 먼저 작성됨",
+          "check": "script"
+        },
+        {
+          "id": "boundaries-run",
+          "text": "check_boundaries.py 를 실제로 실행한 기록이 있음",
+          "check": "script"
+        },
+        {
+          "id": "feature-implemented",
+          "text": "add·list 를 구현한 코드가 있음",
+          "check": "script"
+        },
+        {
+          "id": "structure-rule-stated",
+          "text": "새 기능이 자기 폴더/파일로 끝나게 하는 구조 규칙을 정하고 보고함",
+          "check": "judge"
+        }
+      ]
+    }
+  ]
+}
