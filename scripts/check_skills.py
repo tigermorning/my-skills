@@ -14,10 +14,13 @@ Each check turns a rule that used to live only in review comments into a failure
   find the tasks and fixtures it is graded on
 - code comments in scripts carry the reason, not history: no dates and no
   who-said-it provenance (agents tend to write irrelevant history as comments)
+- the user-wide copies in ~/.claude/skills match the repo (local only, skipped when CI is
+  set or the directory is missing; fix with scripts/installed_skills.py --sync)
 """
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -34,10 +37,13 @@ FIXTURE_OF = {  # eval name -> fixture dir (relative to scripts/skill-evals/<ski
     "misdiagnosed-parse-error": "notes-api",
     "phone-normalizer-real-csv": "phone-cleanup",
     "sentence-splitter-real-news": "sentence-split",
+    "new-project-gate": "blank",
+    "guardrails-before-first-feature": "notes-cli",
 }
 # On the untouched fixture these evals' outcome checks must fail; the misdiagnosis eval
 # is excluded because an untouched server.py is exactly the passing state there.
-MUST_FAIL_ON_FIXTURE = {"curl-create-korean-note", "phone-normalizer-real-csv", "sentence-splitter-real-news"}
+MUST_FAIL_ON_FIXTURE = {"curl-create-korean-note", "phone-normalizer-real-csv", "sentence-splitter-real-news",
+                     "new-project-gate", "guardrails-before-first-feature"}
 
 errors = []
 
@@ -161,16 +167,33 @@ def check_comment_hygiene():
 
 def check_self_tests():
     """Run every test script that guards a tool: hook guards and skill-bundled checkers."""
-    tests = [*sorted(ROOT.glob("scripts/hooks/test_*.py")), *sorted(ROOT.glob("scripts/skill-evals/test_*.py")), *sorted(SKILLS.glob("*/scripts/test_*.py"))]
+    tests = [*sorted(ROOT.glob("scripts/test_*.py")), *sorted(ROOT.glob("scripts/hooks/test_*.py")), *sorted(ROOT.glob("scripts/skill-evals/test_*.py")), *sorted(SKILLS.glob("*/scripts/test_*.py"))]
     for t in tests:
         r = subprocess.run([sys.executable, str(t)], capture_output=True, text=True, encoding="utf-8")
         if r.returncode != 0:
             err(t.relative_to(ROOT), r.stdout.strip() or r.stderr.strip())
 
 
+def check_installed_copies():
+    """The user-wide copies are what other projects load, so a stale one is a failure locally.
+
+    CI has no home directory to compare, so it is skipped there and when nothing is installed.
+    """
+    install = Path.home() / ".claude" / "skills"
+    if os.environ.get("CI") or not install.is_dir():
+        return
+    spec = importlib.util.spec_from_file_location("installed_skills", ROOT / "scripts" / "installed_skills.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    problems, stale = mod.compare(SKILLS, install)
+    for p in problems:
+        if p.split(": ", 1)[0] in stale:
+            err("installed copy", f"{p}; fix: python scripts/installed_skills.py --sync")
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
-    dirs = sorted(p for p in SKILLS.iterdir() if p.is_dir())
+    dirs =sorted(p for p in SKILLS.iterdir() if p.is_dir())
     names = {p.name for p in dirs}
     grade = load_graders()
     for d in dirs:
@@ -179,6 +202,7 @@ def main():
         check_eval_freshness(d)
     check_comment_hygiene()
     check_self_tests()
+    check_installed_copies()
     if errors:
         print("\n".join(f"FAIL {e}" for e in errors))
         print(f"{len(errors)} problem(s)")
