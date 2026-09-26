@@ -1,0 +1,8 @@
+{
+  "skill_sha256": "b4e59932b306620d1c0df338d14e2fb2fe085ab20636ea10bf54609c33c487aa",
+  "date": "2026-09-25",
+  "model": "claude-sonnet-5,claude-opus-5-5,claude-haiku-4-5",
+  "passed": 43,
+  "total": 43,
+  "note": "iteration 3 after the 1st revision: 2 evals x 3 models (6 runs), script checks only; 2 checks of one run excluded because the grader cleaned up the user server first"
+}
