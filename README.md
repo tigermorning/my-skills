@@ -17,6 +17,10 @@
 - `~/.claude/skills/omc-learned/<스킬명>/`처럼 한 단계 더 들어가면 인식되지 않습니다.
   - 중립 폴더에서 Skill 도구로 호출해 `Unknown skill`이 나오는 것을 확인했습니다.
 - 이 저장소의 스킬은 사용자 전역 위치에 설치해 두었고, 저장소를 고치면 같은 위치에 다시 복사합니다.
+- 전역 사본이 저장소와 어긋났는지 확인하고 맞추는 명령:
+  - 확인: `python scripts/installed_skills.py`
+  - 맞추기: `python scripts/installed_skills.py --sync`
+  - `python scripts/check_skills.py`도 로컬에서 같은 검사를 하고, 어긋나면 실패합니다. CI에서는 건너뜁니다.
 
 다른 컴퓨터에 새로 세팅하거나, 특정 프로젝트에만 국한해서 쓰고 싶다면:
 
