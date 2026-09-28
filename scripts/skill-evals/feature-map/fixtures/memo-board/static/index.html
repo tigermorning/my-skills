@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>메모판</title>
+<style>
+  body { font-family: sans-serif; max-width: 640px; margin: 2rem auto; }
+  nav { display: flex; justify-content: space-between; }
+  .memo { display: flex; gap: .5rem; align-items: center; border-bottom: 1px solid #ddd; padding: .4rem 0; }
+  .memo .text { flex: 1; }
+  .pinned .text { font-weight: bold; }
+</style>
+</head>
+<body>
+<nav>
+  <h1>메모판</h1>
+  <a href="/settings">설정</a>
+</nav>
+
+<section>
+  <textarea id="memo-input" aria-label="새 메모" rows="3" cols="50"></textarea>
+  <button id="add-btn" disabled>추가</button>
+  <span id="status" role="status"></span>
+</section>
+
+<section>
+  <input id="search" type="search" placeholder="메모 검색 (/)" aria-label="메모 검색">
+</section>
+
+<ul id="memo-list"></ul>
+
+<script>
+const input = document.getElementById("memo-input");
+const addBtn = document.getElementById("add-btn");
+const statusEl = document.getElementById("status");
+const search = document.getElementById("search");
+const list = document.getElementById("memo-list");
+
+input.addEventListener("input", () => { addBtn.disabled = input.value.trim() === ""; });
+
+addBtn.addEventListener("click", async () => {
+  addBtn.disabled = true;
+  statusEl.textContent = "저장 중…";
+  const res = await fetch("/api/memos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: input.value }),
+  });
+  if (res.ok) {
+    input.value = "";
+    statusEl.textContent = "저장됨";
+    await refresh();
+  } else {
+    statusEl.textContent = "저장 실패";
+    addBtn.disabled = false;
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== input && document.activeElement !== search) {
+    e.preventDefault();
+    search.focus();
+  }
+});
+
+search.addEventListener("input", refresh);
+
+async function refresh() {
+  const res = await fetch("/api/memos?q=" + encodeURIComponent(search.value));
+  const memos = await res.json();
+  list.innerHTML = "";
+  if (memos.length === 0) {
+    list.innerHTML = '<li id="empty">메모가 없습니다</li>';
+    return;
+  }
+  for (const m of memos) {
+    const li = document.createElement("li");
+    li.className = "memo" + (m.pinned ? " pinned" : "");
+    li.dataset.id = m.id;
+    const text = document.createElement("span");
+    text.className = "text";
+    text.textContent = m.text;
+    const pin = document.createElement("button");
+    pin.className = "pin-btn";
+    pin.textContent = m.pinned ? "고정 해제" : "📌 고정";
+    pin.addEventListener("click", async () => {
+      await fetch(`/api/memos/${m.id}/pin`, { method: "POST" });
+      await refresh();
+    });
+    li.append(text, pin);
+    if (!m.pinned) {
+      const del = document.createElement("button");
+      del.className = "delete-btn";
+      del.textContent = "삭제";
+      del.addEventListener("click", async () => {
+        await fetch(`/api/memos/${m.id}`, { method: "DELETE" });
+        await refresh();
+      });
+      li.append(del);
+    }
+    list.append(li);
+  }
+}
+
+refresh();
+</script>
+</body>
+</html>
