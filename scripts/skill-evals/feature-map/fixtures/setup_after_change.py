@@ -42,7 +42,7 @@ if __name__ == "__main__":
     shutil.copy(HERE / "map-v1.md", target / "FEATURE_MAP.md")
     setup_repo.init(target)
     page = target / "static" / "index.html"
-    html = page.read_text(encoding="utf-8")
+    html = page.read_text(encoding="utf-8").replace("\r\n", "\n")  # a CRLF checkout must not break the multi-line matches
     for old, new in ((RENAME_OLD, RENAME_NEW), (SEARCH_OLD, SEARCH_NEW), (REFRESH_OLD, REFRESH_NEW), (LISTENER_OLD, LISTENER_NEW)):
         if html.count(old) != 1:
             sys.exit(f"setup_after_change: expected one match for {old[:40]!r}")
