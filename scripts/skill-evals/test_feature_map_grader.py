@@ -15,7 +15,8 @@ spec = importlib.util.spec_from_file_location("grade", HERE / "grade.py")
 grade = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(grade)
 
-RAN = [("Bash", {"command": "python app.py 8711 > /dev/null 2>&1 &"}), ("Bash", {"command": "curl -s http://127.0.0.1:8711/api/memos"})]
+RAN = [("Bash", {"command": "python app.py 8711 > /dev/null 2>&1 &"}), ("Bash", {"command": "curl -s http://127.0.0.1:8711/api/memos"}),
+       ("Edit", {"file_path": "FEATURE_MAP.md"})]  # a relative path is inside the job, not outside it
 V2_EDITS = [
     ('- 사용자 경로: 첫 화면 → 메모 입력칸 → "추가" 버튼', '- 사용자 경로: 첫 화면 → 메모 입력칸 → "메모 저장" 버튼'),
     ("- 선택자: `#memo-input`, `#add-btn`, `추가`, `#status`", "- 선택자: `#memo-input`, `#add-btn`, `메모 저장`, `#status`"),

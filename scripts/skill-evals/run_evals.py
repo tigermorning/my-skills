@@ -270,7 +270,40 @@ def judge_run(res, ev, skill, judge_model):
     except (ValueError, KeyError, IndexError):
         text = "\n".join(lines)
     got = {g["id"]: g for g in (extract_json_list(text) or []) if isinstance(g, dict) and "id" in g}
-    return [{"text": a["text"], "passed": bool(got.get(a["id"], {}).get("passed")), "evidence": "judge: " + str(got.get(a["id"], {}).get("evidence", "no verdict"))} for a in items]
+    return [{"text": a["text"], "passed": bool(got.get(a["id"], {}).get("passed")),
+             "evidence": "judge: " + str(got.get(a["id"], {}).get("evidence", NO_VERDICT + " — " + str(text)[:80]))} for a in items]
+
+
+NO_VERDICT = "no verdict"
+LIVE_CHECKS = ("정리함", "살아 있음")  # these read live ports/PIDs, so only the grading pass right after the run can decide them
+
+
+def judge_problems(res):
+    """A judge that returned nothing (usage limit, API error) measured nothing; scoring it as a fail skews the rate."""
+    missing = [j for j in res.get("judge", []) if NO_VERDICT in j["evidence"]]
+    return [f"judge gave no verdict for {len(missing)} assertion(s): {missing[0]['evidence'][:100]}"] if missing else []
+
+
+def regrade(job_root, args):
+    """Re-judge (and with --rescript re-grade) finished runs in job_root without rerunning the agents."""
+    results = json.loads((job_root / "results.json").read_text(encoding="utf-8"))
+    data = json.loads((HERE / args.skill / "evals.json").read_text(encoding="utf-8"))
+    by_name = {e["name"]: e for e in data["evals"]}
+    grade = load(HERE / "grade.py", "grade_eval")
+    for r in results:
+        ev = by_name[r["eval"]]
+        if args.rescript:
+            try:
+                fresh = grade.GRADERS[ev["name"]](Path(r["job"]), grade.tool_calls(r["transcript"]))
+                live = {e["text"]: e for e in r["script"] if any(k in e["text"] for k in LIVE_CHECKS)}
+                r["script"] = [live.get(e["text"], e) for e in fresh]
+            except Exception as e:  # noqa: BLE001 — keep the original grading when the live setup is gone
+                print(f"  keep original script grades for {r['id']}: {type(e).__name__}: {e}")
+        if not r.get("judge") or judge_problems(r) or args.rejudge_all:
+            r["judge"] = judge_run(r, ev, args.skill, args.judge_model)
+            print(f"  judged {r['id']}", flush=True)
+        r["invalid"] = [p for p in r["invalid"] if not p.startswith("judge gave no verdict")] + judge_problems(r)
+    return results
 
 
 def table(results):
@@ -299,8 +332,16 @@ def main():
     ap.add_argument("--fail-under", type=float, default=None)
     ap.add_argument("--record", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--regrade", default="", help="job root of a finished run: re-judge runs without a verdict instead of running agents")
+    ap.add_argument("--rescript", action="store_true", help="with --regrade: also rerun the script graders (live-state checks keep their original result)")
+    ap.add_argument("--rejudge-all", action="store_true", help="with --regrade: re-judge every run, not only those without a verdict")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
+
+    if args.regrade:
+        job_root = Path(args.regrade)
+        results = regrade(job_root, args)
+        return report(results, job_root, args)
 
     eval_dir = HERE / args.skill
     data = json.loads((eval_dir / "evals.json").read_text(encoding="utf-8"))
@@ -330,8 +371,13 @@ def main():
     by_name = {e["name"]: e for e in evals}
     for r in results:
         r["judge"] = judge_run(r, by_name[r["eval"]], args.skill, args.judge_model)
-    (job_root / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+        r["invalid"] = r["invalid"] + judge_problems(r)
+    report(results, job_root, args)
 
+
+def report(results, job_root, args):
+    """Save results.json, print the table and failures, and record only when every run measured its config."""
+    (job_root / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
     md, rows = table(results)
     print("\n" + md)
     for r in sorted(results, key=lambda x: x["id"]):
@@ -347,8 +393,11 @@ def main():
     skill_rows = [(p, n) for (c, m), (p, n) in rows.items() if c == "skill"]
     passed, total = (sum(p for p, _ in skill_rows), sum(n for _, n in skill_rows))
     if args.record and total:
-        subprocess.run([sys.executable, str(HERE / "record_run.py"), args.skill, "--model", args.models, "--passed", str(passed), "--total", str(total),
-                        "--note", f"run_evals.py: {len(results)} runs, repeat={args.repeat}, judge={args.judge_model}"], check=True)
+        models = ",".join(sorted({r["model"] for r in results}))  # from the results, so a --regrade records what actually ran
+        repeat = max(r["n"] for r in results) + 1
+        note = f"run_evals.py: {len(results)} runs, repeat={repeat}, judge={args.judge_model}" + (" (regraded)" if args.regrade else "")
+        subprocess.run([sys.executable, str(HERE / "record_run.py"), args.skill, "--model", models, "--passed", str(passed), "--total", str(total),
+                        "--note", note], check=True)
     if args.fail_under is not None and total and passed / total < args.fail_under:
         print(f"skill pass rate {passed}/{total} is below {args.fail_under:.0%}")
         sys.exit(1)

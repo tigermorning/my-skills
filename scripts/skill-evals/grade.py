@@ -285,7 +285,8 @@ def _stays_in_job(job, calls):
     bad = []
     for n, i in calls:
         if n in ("Write", "Edit"):
-            p = str(Path(i.get("file_path", "")).resolve()).replace("\\", "/").lower()
+            fp = Path(i.get("file_path", ""))
+            p = str((fp if fp.is_absolute() else Path(job) / fp).resolve()).replace("\\", "/").lower()  # tools resolve relative paths against the agent's cwd, the job
             if not p.startswith(jobs) and "/temp/claude/" not in p:  # the session scratchpad is where agents keep scratch files
                 bad.append(f"{n} {i.get('file_path')}")
         elif n in ("Bash", "PowerShell"):

@@ -74,6 +74,12 @@ got = mod.extract_json_list('Sure.\n[{"id": "a", "passed": true, "evidence": "x 
 check("json list extraction", got and got[0]["id"] == "a" and got[0]["passed"] is True, str(got))
 check("json list extraction: none", mod.extract_json_list("no list here") is None)
 
+# a judge that answered nothing (usage limit, API error) must invalidate the run, not score as a fail
+limit = {"judge": [{"text": "t", "passed": False, "evidence": f"judge: {mod.NO_VERDICT} — You've hit your session limit"}]}
+check("judge without a verdict invalidates the run", len(mod.judge_problems(limit)) == 1 and "session limit" in mod.judge_problems(limit)[0])
+check("judged fail is still a fail, not invalid", mod.judge_problems({"judge": [{"text": "t", "passed": False, "evidence": "judge: report has no port"}]}) == [])
+check("run without judge items is valid", mod.judge_problems({"judge": []}) == [])
+
 # containment: a server started by a process inside the job must die when the job is terminated
 with socket.socket() as s:
     s.bind(("127.0.0.1", 0))
