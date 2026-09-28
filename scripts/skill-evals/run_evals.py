@@ -87,11 +87,22 @@ def exposure_problems(calls, config, skill):
     return problems
 
 
+WAITING = re.compile(r"기다리|대기|도는 중|실행 중|알림 오면|완료되면|끝나면|waiting|will report|once it completes|still running", re.I)
+
+
+def report_problems(report):
+    """`claude -p` ends with the turn, so a run that stopped to wait for a background agent never
+    delivers its report; the judge would score an empty report as the skill's failure."""
+    if len(report) < 300 and WAITING.search(report):
+        return [f"agent ended its turn waiting for a background task, so there is no final report: {report[:80]!r}"]
+    return []
+
+
 def run_problems(calls, config, skill, transcript):
     """exposure_problems plus a usage-limit check: a run cut off by the limit measured nothing."""
     if "hit your session limit" in Path(transcript).read_text(encoding="utf-8", errors="replace"):
         return ["usage limit hit during the run; rerun after it resets"]
-    return exposure_problems(calls, config, skill)
+    return exposure_problems(calls, config, skill) + report_problems(final_report(transcript))
 
 
 def redact(text, skill):
