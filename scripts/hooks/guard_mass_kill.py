@@ -16,8 +16,10 @@ PATTERNS = [
     re.compile(r"\bkillall\b", re.I),
     re.compile(r"\bpkill\b(?![^|;&]*\s-f\s+[\"'][^\"']*\s\d{2,5}[\"'])", re.I),
     re.compile(r"\bStop-Process\b[^|;&]*-(Name|ProcessName)\b", re.I),
-    re.compile(r"\bGet-Process\b[^|;]*\|\s*(Stop-Process|kill)\b", re.I),
-    re.compile(r"\bwmic\b[^|;&]*\bprocess\b[^|;&]*\bwhere\b[^|;&]*\bname\b[^|;&]*\bdelete\b", re.I),
+    # any filter stages may sit between Get-Process and the kill; a pipeline narrowed with -Id is by PID
+    re.compile(r"\bGet-Process\b(?![^|;)\n]*\s-Id\b)[^;\n]*?(\|\s*(Stop-Process|spps|kill)\b|\.Kill\(\))", re.I),
+    re.compile(r"\bwmic\b[^|;&]*\bprocess\b[^|;&]*\bwhere\b[^|;&]*\bname\b[^|;&]*\b(delete|call\s+terminate)\b", re.I),
+    re.compile(r"\b(Get-CimInstance|Get-WmiObject|gwmi|gcim)\b[^;\n]*\bWin32_Process\b(?![^;\n]*\b(ProcessId|Handle)\s*=)[^;\n]*\bTerminate\b", re.I),
 ]
 
 REASON = (

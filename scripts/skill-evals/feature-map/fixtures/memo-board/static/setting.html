@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>설정 — 메모판</title>
+</head>
+<body>
+<h1>설정</h1>
+<label><input type="checkbox" id="dark-mode"> 다크 모드</label>
+<p><a href="/">← 메모판으로</a></p>
+<script>
+const box = document.getElementById("dark-mode");
+try { box.checked = localStorage.getItem("memo-dark") === "1"; } catch (e) {}
+const apply = () => { document.body.style.background = box.checked ? "#222" : ""; document.body.style.color = box.checked ? "#eee" : ""; };
+apply();
+box.addEventListener("change", () => {
+  try { localStorage.setItem("memo-dark", box.checked ? "1" : "0"); } catch (e) {}
+  apply();
+});
+</script>
+</body>
+</html>

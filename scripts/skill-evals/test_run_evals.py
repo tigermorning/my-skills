@@ -74,6 +74,21 @@ got = mod.extract_json_list('Sure.\n[{"id": "a", "passed": true, "evidence": "x 
 check("json list extraction", got and got[0]["id"] == "a" and got[0]["passed"] is True, str(got))
 check("json list extraction: none", mod.extract_json_list("no list here") is None)
 
+# a run that ended its turn waiting for a background agent has no report for the judge to read
+for waiting in ["감사 에이전트 결과 기다리는 중.", "Waiting for the audit agent's completion notification now.",
+                "백그라운드 검토 에이전트 아직 도는 중. 완료 알림 오면 이어서 처리한다.",
+                "Background audit agent running against the feature map — will report full results once it completes."]:
+    check(f"waiting report flagged: {waiting[:24]}", len(mod.report_problems(waiting)) == 1)
+for done in ["완료. FEATURE_MAP.md 작성함. 다음 에이전트가 앱을 테스트할 수 있어", "",
+             "- 대상: 메모 추가\n- 관찰: 저장됨\n- 건너뜀: 백그라운드 탭 전환은 기다리는 동안 못 봄 " + "x" * 400]:
+    check(f"finished report not flagged: {done[:24]!r}", mod.report_problems(done) == [])
+
+# a judge that answered nothing (usage limit, API error) must invalidate the run, not score as a fail
+limit = {"judge": [{"text": "t", "passed": False, "evidence": f"judge: {mod.NO_VERDICT} — You've hit your session limit"}]}
+check("judge without a verdict invalidates the run", len(mod.judge_problems(limit)) == 1 and "session limit" in mod.judge_problems(limit)[0])
+check("judged fail is still a fail, not invalid", mod.judge_problems({"judge": [{"text": "t", "passed": False, "evidence": "judge: report has no port"}]}) == [])
+check("run without judge items is valid", mod.judge_problems({"judge": []}) == [])
+
 # containment: a server started by a process inside the job must die when the job is terminated
 with socket.socket() as s:
     s.bind(("127.0.0.1", 0))
