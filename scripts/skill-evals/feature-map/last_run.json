@@ -1,8 +1,8 @@
 {
-  "skill_sha256": "0dabd21968febbc729196d6d488ca2d0a3c7e444629704412cbcc846eef9bb08",
-  "date": "2026-09-28",
+  "skill_sha256": "0e774134da4c4f9a3df2622de53e5bfd277aafcc7de1f2b744738fea17eed680",
+  "date": "2026-09-29",
   "model": "haiku,sonnet",
-  "passed": 248,
+  "passed": 255,
   "total": 280,
   "note": "run_evals.py: 20 runs, repeat=5, judge=opus"
 }
