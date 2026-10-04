@@ -1,0 +1,25 @@
+{
+  "guarded_branch": "main",
+  "project_dir": ".",
+  "worker_branch": "^worker/(T-\\d+[a-z]?)",
+  "card_id": "T-\\d+[a-z]?",
+  "card": {
+    "path": "docs/tasks/{id}.md",
+    "ref": null,
+    "strip": [],
+    "section": "^(만지는 파일|Files)",
+    "ban": "^(고치지 않음|Do not touch)"
+  },
+  "aliases": {
+    "core": ["src/core/**"]
+  },
+  "report": {
+    "path": "docs/reports/{id}.md",
+    "sections": ["^(한 것|Done)", "^(확인|Checks)", "^(막힌 것|Blocked)", "^(합칠 때 주의|Merge notes)"],
+    "strict": ["^(합칠 때 주의|Merge notes)", "^(막힌 것|Blocked)"],
+    "numbers_in": "^(확인|Checks)"
+  },
+  "judges": [".merge-gate/", "scripts/quick_check.py"],
+  "quick": ["{python}", "{head:scripts/quick_check.py}", "--repo={repo}"],
+  "quick_timeout_s": 600
+}
