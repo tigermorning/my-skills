@@ -45,6 +45,14 @@ CASES = [
     ("guard_mass_kill.py", {"tool_name": "Bash", "tool_input": {"command": "echo taskkill docs"}}, False),
     ("guard_mass_kill.py", {"tool_name": "Bash", "tool_input": {"command": "cat > msg.txt <<'EOF'\nagents ran `taskkill /F /IM python.exe`\nEOF\ngit commit -F msg.txt"}}, False),
     ("guard_mass_kill.py", {"tool_name": "Bash", "tool_input": {"command": "cat > m <<'EOF'\nnote\nEOF\ntaskkill /F /IM python.exe"}}, True),
+    ("guard_bash_double_backslash.py", {"tool_name": "Bash", "tool_input": {"command": "cat > fix.py <<'EOF'\nGAME = \"examples\\\\red-sand\"\nEOF\npython fix.py"}}, True),
+    ("guard_bash_double_backslash.py", {"tool_name": "Bash", "tool_input": {"command": "python - <<'EOF'\nre.split(r'\\\\r?\\\\n', s)\nEOF"}}, True),
+    ("guard_bash_double_backslash.py", {"tool_name": "Bash", "tool_input": {"command": "echo 'a\\\\b' | od -c"}}, True),
+    ("guard_bash_double_backslash.py", {"tool_name": "Bash", "tool_input": {"command": "ls C:\\\\Users"}}, True),
+    ("guard_bash_double_backslash.py", {"tool_name": "Bash", "tool_input": {"command": "printf 'a\\nb\\n' | wc -l"}}, False),
+    ("guard_bash_double_backslash.py", {"tool_name": "Bash", "tool_input": {"command": "git log --oneline -3"}}, False),
+    ("guard_bash_double_backslash.py", {"tool_name": "PowerShell", "tool_input": {"command": "Get-ChildItem C:\\\\Users"}}, False),
+    ("guard_bash_double_backslash.py", {"tool_name": "Write", "tool_input": {"file_path": "fix.py", "content": "p = 'a\\\\b'"}}, False),
 ]
 
 

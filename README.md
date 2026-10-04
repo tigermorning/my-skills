@@ -201,6 +201,7 @@ squash처럼 들어온 브랜치를 알 수 없는 합치기는 막고, fast-for
 | 고정 GitHub URL | PreToolUse 훅 (브라우저 입력 도구) | `/tree/`·`/blob/`·`/commit/`·`/releases/tag/` URL 입력 | `scripts/hooks/guard_pinned_github_url.py` |
 | 이름 기준 프로세스 종료 | PreToolUse 훅 (Bash·PowerShell) | `taskkill /IM`, `pkill`, `killall`, `Stop-Process -Name`처럼 같은 이름의 모든 프로세스를 죽이는 명령 | `scripts/hooks/guard_mass_kill.py` |
 | 복구할 수 없는 재귀 삭제 | PreToolUse 훅 (Bash·PowerShell) | 임시 폴더 밖에서 커밋 안 된 파일이나 git 밖 파일이 든 폴더의 `rm -rf` | `scripts/hooks/guard_recursive_delete.py` |
+| Bash 역슬래시 두 개 | PreToolUse 훅 (Bash) | 역슬래시 두 개(`\\`)가 든 Bash 명령 — 이 환경의 Bash 도구는 셸에 넘기기 전에 `\\`를 `\` 하나로 줄인다(작은따옴표·`<<'EOF'` 안도). 파이썬·JS 스크립트의 `\\r`가 진짜 CR이 되거나 정규식이 깨진다. Write 도구로 파일을 쓰고 실행하게 안내 | `scripts/hooks/guard_bash_double_backslash.py` |
 | 스킬 구조 검사 | GitHub Actions `skills-ci` | 이름과 폴더 불일치, 깨진 `[[링크]]`, 잘못된 evals.json, 원본 픽스처를 통과시키는 채점기, eval을 다시 안 돌린 SKILL.md 수정, 날짜·경위가 적힌 코드 주석, 스크립트 셀프 테스트 실패 | `scripts/check_skills.py` |
 
 - 훅 등록 위치: `~/.claude/settings.json`의 `hooks.PreToolUse`. 모든 프로젝트에 적용됩니다.
