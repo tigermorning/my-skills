@@ -157,6 +157,15 @@ def last_json(text):
     return None
 
 
+def denial_label(d):
+    tool_input = d.get("tool_input") or {}
+    if tool_input.get("file_path"):
+        return str(tool_input["file_path"])
+    if tool_input.get("command"):
+        return f"{d.get('tool_name')}({str(tool_input['command'])[:80]})"
+    return str(d.get("tool_name"))
+
+
 def review(repo, cfg, branch, base_ref, body_path, mdanger):
     std = mdanger.find_user_standards()
     repo_std = Path(repo) / "CODING_STANDARDS.md"
@@ -164,8 +173,12 @@ def review(repo, cfg, branch, base_ref, body_path, mdanger):
     # directory it is given, and the pipeline copies it into the state directory.
     scratch = Path(tempfile.mkdtemp(prefix="pr-pipeline-"))
     draft = scratch / body_path.name
+    # With the env the pipeline uses: the same command without it can fail for a local reason (check_skills
+    # compares installed copies unless CI is set), and the agent then reports a failure that is not there.
+    env = " ".join(f"{k}={v}" for k, v in (cfg.get("check_env") or {}).items())
+    checks = [f"{env} {c}" if env else c for c in cfg["checks"]]
     prompt = review_prompt(base_ref, branch, draft, str(std) if std else None, str(repo_std) if repo_std.is_file() else None,
-                           cfg["checks"])
+                           checks)
     # User settings only: the user's guard hooks still apply, but a repository's own hooks (a session
     # logger that commits on SessionEnd, for one) must not add commits to the branch under review.
     args = [*cmd_from_env("PR_PIPELINE_CLAUDE", "claude"), "-p", "--output-format", "json", "--setting-sources", "user",
@@ -203,10 +216,9 @@ def review(repo, cfg, branch, base_ref, body_path, mdanger):
     # Claude Code refuses edits under protected folders such as .claude/ even with an allow rule, so a
     # fix the agent wanted can vanish; name what it could not touch instead of passing quietly.
     denials = outer.get("permission_denials") if isinstance(outer, dict) else None
-    denied = sorted({str((d.get("tool_input") or {}).get("file_path") or d.get("tool_name"))
-                     for d in denials or [] if isinstance(d, dict)})
+    denied = sorted({denial_label(d) for d in denials or [] if isinstance(d, dict)})
     if denied:
-        questions.append("the review agent was refused permission and could not fix: " + ", ".join(denied))
+        questions.append("the review agent was refused permission for: " + ", ".join(denied))
     return {"title": answer.get("title"), "questions": questions,
             "fixed": list(answer.get("fixed") or []), "commits": commits, "answer_found": bool(answer)}
 

@@ -29,8 +29,9 @@ app.add(x)  # new helper
 
 FAKE_CLAUDE = r'''
 import json, os, re, subprocess, sys
-prompt = sys.stdin.read()
+prompt = sys.stdin.buffer.read().decode("utf-8")
 open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write("called\n")
+open(os.environ["FAKE_CLAUDE_LOG"] + ".prompt", "w", encoding="utf-8").write(prompt)
 body_path = re.search(r"BODY_PATH: (.+)", prompt).group(1).strip()
 open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write("BODY " + body_path + "\n")
 mode = os.environ.get("FAKE_REVIEW", "clean")
@@ -64,7 +65,8 @@ if mode == "nojson":
     print(json.dumps({"type": "result", "result": "done, no json line"}))
 elif mode == "denied":
     print(json.dumps({"type": "result", "result": "done\n" + json.dumps(answer), "permission_denials": [
-        {"tool_name": "Edit", "tool_input": {"file_path": ".claude/skills/a/x.py"}}]}))
+        {"tool_name": "Edit", "tool_input": {"file_path": ".claude/skills/a/x.py"}},
+        {"tool_name": "Bash", "tool_input": {"command": "ls -la"}}]}))
 else:
     print(json.dumps({"type": "result", "result": "done\n" + json.dumps(answer)}))
 '''.replace("GOOD", repr(GOOD_BODY), 1).replace("GOOD\n", repr(GOOD_BODY) + "\n")
@@ -215,7 +217,13 @@ if __name__ == "__main__":
         return out
     case("review agent writes the body where it is allowed to", want_ok=True, check=body_outside_git)
     case("an edit the agent was refused becomes a question", want_ok=False, reason="question", FAKE_REVIEW="denied",
-         check=lambda w, o, log, *a: [] if any(".claude/skills/a/x.py" in q for q in log["review"]["questions"]) else ["refused edit not reported"])
+         check=lambda w, o, log, *a: [] if any(".claude/skills/a/x.py" in q and "Bash(ls -la)" in q for q in log["review"]["questions"])
+         else [f"refused edit or command not reported: {log['review']['questions']}"])
+
+    def checks_with_env(work, origin, log, err, calls, claude_called):
+        prompt = (Path(work).parent / "claude.log.prompt").read_text(encoding="utf-8")
+        return [] if "CI=1 " in prompt else ["the review prompt lists the checks without the env the pipeline runs them with"]
+    case("review prompt names the checks with their env", cfg={"check_env": {"CI": "1"}}, want_ok=True, check=checks_with_env)
     case("no JSON line becomes a question", want_ok=False, reason="question", FAKE_REVIEW="nojson")
     case("one-way door needs a person", want_ok=False, reason="door is one-way",
          FAKE_BODY=GOOD_BODY.replace("**Door:** two-way", "**Door:** one-way"))
