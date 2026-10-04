@@ -198,6 +198,42 @@ if __name__ == "__main__":
     if r.returncode != 2:
         failed.append(f"no source should be a usage error, got exit {r.returncode}")
 
+    # Several project folders: a lesson repeated across projects is "shared", one repeated inside a project is not.
+    with tempfile.TemporaryDirectory() as d:
+        a, b = Path(d, "proj-a"), Path(d, "proj-b")
+        a.mkdir()
+        b.mkdir()
+        SHARED = "주석에는 날짜를 쓰지 말고 이유만 적어 줘 제발"
+        LOCAL = "이 게임 시험은 화면 창구로 동작을 확인해 줘 다시"
+        Path(a, "s1.jsonl").write_text("\n".join([event(SHARED, uuid="a1"), event(LOCAL, uuid="a2")]), encoding="utf-8")
+        Path(a, "s2.jsonl").write_text(event(LOCAL + " 꼭", uuid="a3"), encoding="utf-8")
+        Path(b, "s3.jsonl").write_text(event(SHARED + " 부탁해", uuid="b1"), encoding="utf-8")
+        r = subprocess.run([sys.executable, str(HERE / "collect_feedback.py"), "--transcripts", str(a), str(b), "--json"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            failed.append(f"two folders: exit {r.returncode} {r.stderr}")
+        else:
+            rep = json.loads(r.stdout)
+            scopes = {g["members"][0]["text"][:6]: (g["scope"], g["projects"]) for g in rep["repeats"]}
+            if scopes.get(SHARED[:6]) != ("shared", ["proj-a", "proj-b"]):
+                failed.append(f"cross-project repeat should be shared: {scopes}")
+            if scopes.get(LOCAL[:6]) != ("project", ["proj-a"]):
+                failed.append(f"one-project repeat should be project-scoped: {scopes}")
+            if rep["scanned"]["sessions"] != 3:
+                failed.append(f"two folders should scan 3 sessions, got {rep['scanned']}")
+        wt = Path(d, "proj-a--claude-worktrees-brave-x1")
+        wt.mkdir()
+        Path(wt, "s4.jsonl").write_text(event(LOCAL + " 정말", uuid="w1"), encoding="utf-8")
+        r = subprocess.run([sys.executable, str(HERE / "collect_feedback.py"), "--transcripts", str(a), str(wt), "--json"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        groups = json.loads(r.stdout)["repeats"] if r.returncode == 0 else []
+        if not groups or any(g["scope"] != "project" or g["projects"] != ["proj-a"] for g in groups):
+            failed.append(f"a worktree folder is the same project, not a second one: {[(g['scope'], g['projects']) for g in groups]}")
+        r = subprocess.run([sys.executable, str(HERE / "collect_feedback.py"), "--transcripts", str(a), str(Path(d, "nope"))],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 2 or "nope" not in r.stderr:
+            failed.append(f"a missing folder among several should be exit 2 naming it, got {r.returncode} {r.stderr}")
+
     for f in failed:
         print("FAIL", f)
     print("ok" if not failed else f"{len(failed)} failed")

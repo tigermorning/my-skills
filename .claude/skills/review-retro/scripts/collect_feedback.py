@@ -2,7 +2,9 @@
 
 Sources (use one or both):
   --gh-repo OWNER/REPO --days 7     review comments, reviews and PR comments on PRs merged in the window (needs gh)
-  --transcripts PATH [--days 7]     a Claude Code transcript (*.jsonl) or a folder of them; keeps what the human typed
+  --transcripts PATH [PATH ...]     Claude Code transcripts (*.jsonl) or folders of them; keeps what the human typed.
+                                    Each folder counts as one project, so a repeat is marked "shared by N projects"
+                                    (user-level standards) or "project X" (that repository's standards)
   --exclude-author LOGIN            skip this GitHub author (repeatable); bots are skipped already
 
 Output: markdown (default) or --json, with every remark, a "repeated" list of remarks that look alike
@@ -85,7 +87,10 @@ def find_repeats(remarks):
     across, within = [], []
     for members in find_groups(remarks):
         sources = sorted({m["source"] for m in members})
-        g = {"count": len(members), "sources": sources, "members": members}
+        # The same lesson in two projects belongs in user-level standards; in one project, in that repo.
+        projects = sorted({m["project"] for m in members if m.get("project")})
+        g = {"count": len(members), "sources": sources, "members": members, "projects": projects,
+             "scope": "shared" if len(projects) >= 2 else "project"}
         (across if len(sources) >= 2 else within).append(g)
     across.sort(key=lambda g: (-len(g["sources"]), -g["count"]))
     within.sort(key=lambda g: -g["count"])
@@ -127,7 +132,8 @@ def from_github(repo, since, excluded=(), gh=gh_json):
             if is_bot(author) or login in excluded:
                 continue
             if keep(body or ""):
-                out.append({"source": src, "where": pr["url"], "who": login, "text": body.strip()})
+                out.append({"source": src, "where": pr["url"], "who": login, "text": body.strip(),
+                            "project": repo.split("/")[-1]})
     return out
 
 
@@ -150,13 +156,16 @@ def human_text(ev):
     return "\n".join(b.strip() for b in blocks if b.strip())
 
 
-def from_transcripts(path, since):
+def from_transcripts(path, since, seen=None):
     path = Path(path).expanduser()
     files = [path] if path.is_file() else sorted(path.glob("*.jsonl"))
+    # Claude Code keeps a worktree's sessions in "<project>--claude-worktrees-<name>"; that is still one project,
+    # and counting it separately would mark a single project's habit as shared across projects.
+    project = re.sub(r"--claude-worktrees-.+$", "", path.parent.name if path.is_file() else path.name)
     out = []
     # Resumed or forked sessions copy earlier messages with their uuid; counting those would
     # report every resumed session as the human repeating themselves.
-    seen = set()
+    seen = set() if seen is None else seen
     for f in files:
         # A file untouched since the window opened holds no message inside it; the window itself is
         # checked per message below because a long-lived session file keeps old messages.
@@ -179,7 +188,7 @@ def from_transcripts(path, since):
                 seen.add(ev["uuid"])
             text = human_text(ev)
             if keep(text):
-                out.append({"source": f.name, "where": f"{f.name}:{n}", "who": "human", "text": text})
+                out.append({"source": f.name, "where": f"{f.name}:{n}", "who": "human", "text": text, "project": project})
     return out
 
 
@@ -193,7 +202,9 @@ def group_lines(groups):
     if not groups:
         lines.append("- none found")
     for g in groups:
-        lines.append(f"- {g['count']} times in {len(g['sources'])} source(s): {short(g['members'][0]['text'])}")
+        where = (f"shared by {len(g['projects'])} projects" if g.get("scope") == "shared"
+                 else f"project {g['projects'][0]}" if g.get("projects") else "project unknown")
+        lines.append(f"- {g['count']} times in {len(g['sources'])} source(s) [{where}]: {short(g['members'][0]['text'])}")
         for m in g["members"][1:4]:
             lines.append(f"  - `{m['where']}`: {short(m['text'], 100)}")
         if g["count"] > 4:
@@ -219,7 +230,7 @@ def markdown(remarks, across, within):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--gh-repo")
-    ap.add_argument("--transcripts")
+    ap.add_argument("--transcripts", nargs="+", metavar="PATH", help="one or more transcript files or folders")
     ap.add_argument("--exclude-author", action="append", default=[])
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--json", action="store_true")
@@ -232,8 +243,9 @@ def main():
         return 2
     since = dt.date.today() - dt.timedelta(days=a.days)
     remarks = []
-    if a.transcripts and not Path(a.transcripts).expanduser().exists():
-        print(f"no such file or directory: {a.transcripts}", file=sys.stderr)
+    missing = [t for t in a.transcripts or [] if not Path(t).expanduser().exists()]
+    if missing:
+        print(f"no such file or directory: {', '.join(missing)}", file=sys.stderr)
         return 2
     try:
         if a.gh_repo:
@@ -241,8 +253,9 @@ def main():
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 2
-    if a.transcripts:
-        remarks += from_transcripts(a.transcripts, since)
+    seen = set()
+    for t in a.transcripts or []:
+        remarks += from_transcripts(t, since, seen)
     for w in WARNINGS:
         print(f"WARNING: {w}", file=sys.stderr)
     across, within = find_repeats(remarks)

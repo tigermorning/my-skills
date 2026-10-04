@@ -37,7 +37,12 @@ python scripts/collect_feedback.py --gh-repo OWNER/REPO --days 7
 python scripts/collect_feedback.py --transcripts ~/.claude/projects/<프로젝트 폴더> --days 7
 ```
 
-- `--transcripts`는 세션 파일 하나(`*.jsonl`)나 폴더를 받는다. 기간은 메시지마다 `timestamp`로 거른다.
+```bash
+python scripts/collect_feedback.py --transcripts ~/.claude/projects/* --days 7
+```
+
+- `--transcripts`는 세션 파일(`*.jsonl`)이나 폴더를 여러 개 받는다. 기간은 메시지마다 `timestamp`로 거른다.
+- 폴더 하나를 프로젝트 하나로 본다. 반복 묶음마다 `[shared by N projects]`(여러 프로젝트) 또는 `[project X]`(한 프로젝트)가 붙는다 — 옮길 층을 고르는 근거(아래 절차 4).
 - 사람이 쓴 리뷰·댓글·지시만 모은다.
   - 세션 기록: 이벤트에 `origin.kind`가 있으면 `human`만 남긴다. 없으면 블록마다 태그로 시작하는 것(시스템 알림·예약 작업)을 뺀다. 압축 요약·도구 결과·"좋아요" 같은 짧은 말도 뺀다.
   - GitHub: 봇(`type: Bot`, 로그인 끝 `[bot]`)은 뺀다. 봇 표시가 없는 자동 계정은 `--exclude-author LOGIN`으로 뺀다.
@@ -54,7 +59,7 @@ python scripts/collect_feedback.py --transcripts ~/.claude/projects/<프로젝�
 | 분류 | 묻는 것 | 보통 옮길 곳 |
 |---|---|---|
 | 자동 검사 | 기계가 잡을 수 있었나? | 린트 규칙, pre-commit 훅, CI, merge 관문 |
-| 코딩 규칙 | 판단이 필요한 기준인가? | `CODING_STANDARDS.md` (리뷰 패스에서 집행 — [[standards-review]]) |
+| 코딩 규칙 | 판단이 필요한 기준인가? | 공통 규칙 파일(여러 프로젝트) 또는 `CODING_STANDARDS.md`(한 프로젝트) — 리뷰 패스에서 집행([[standards-review]]) |
 | 탐색 | 에이전트가 정보를 쉽게 찾았나? 숨은 의존이 있었나? | `AGENTS.md`/`CLAUDE.md`의 짧은 포인터, 지도 문서([[feature-map]]) |
 | 정보 접근 | 필요한데 없던 정보가 있었나? | 문서·스크립트 추가, 접근 권한 |
 | 도구 경제성 | 비싸거나 토큰을 많이 쓰는 호출이 있었나? | 더 좁은 명령, 스크립트, 캐시 |
@@ -67,9 +72,12 @@ python scripts/collect_feedback.py --transcripts ~/.claude/projects/<프로젝�
 1. **모으기**: 수집기를 돌리거나, 세션·PR을 직접 읽어 사람이 고친 것을 목록으로 만든다.
 2. **묶기**: 같은 교훈끼리 묶는다. 반복된 것에 표시한다.
 3. **분류**: 위 표로 분류한다. 한 교훈에 한 분류.
-4. **옮길 곳 고르기** — 강한 것부터:
+4. **옮길 곳 고르기** — 먼저 층, 그다음 강도:
+   - 층: 여러 프로젝트에서 나온 지적(`shared`)은 사용자 공통 — 공통 규칙 파일, 사용자 전역 훅. 한 프로젝트에서만 나온 지적(`project`)은 그 저장소 — `CODING_STANDARDS.md`, 그 저장소의 검사. ([[standards-review]] "두 층")
+   - 위험한 변경을 놓친 지적이면 공통 규칙 파일의 ```` ```one-way ```` 블록에 신호로([[pr-merge-danger]]).
+   - 강도(강한 것부터):
    1. 기계가 막는다(훅·CI·관문). 에러 메시지에 올바른 대안을 적는다.
-   2. 리뷰 패스가 집행한다(`CODING_STANDARDS.md`).
+   2. 리뷰 패스가 집행한다(공통 규칙 파일 또는 `CODING_STANDARDS.md`).
    3. 포인터 한 줄(전역 지시 파일).
    4. 지운다(효과 없는 지시, 오래된 상태).
    - 전역 지시 파일에 규칙을 늘리는 것은 마지막 수단이다. 구현 에이전트의 컨텍스트를 잡아먹는다.

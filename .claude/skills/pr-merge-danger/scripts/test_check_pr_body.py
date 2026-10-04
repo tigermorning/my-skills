@@ -41,7 +41,11 @@ TAIL = "\n## Evidence\n- pytest -> 3 passed\n\n## Merge Danger\nDoor: two-way\nB
 MAIL = "+++ b/app/mailer.py\n+    send_mail(all_users, subject)\n"
 
 
-def cli(args, body=None, body_bytes=None, diff_bytes=None, env=None):
+def cli(args, body=None, body_bytes=None, diff_bytes=None, env=None, std=""):
+    # The developer's own user-level standards file must not change these results; std=None keeps env as given.
+    env = dict(os.environ if env is None else env)
+    if std is not None:
+        env["REVIEW_STANDARDS"] = std
     with tempfile.TemporaryDirectory() as d:
         argv = [sys.executable, str(HERE / "check_pr_body.py"), "--json"]
         if body is not None or body_bytes is not None:
@@ -214,6 +218,78 @@ if __name__ == "__main__":
         code, _, err = cli(["--gh", "1"], env=env)
         if code != 2 or "gh" not in err:
             failed.append(f"missing gh must be exit 2, got {code} {err}")
+
+    # User-level one-way rules.
+    STD = r"""# my standards
+
+```one-way
+# name | repo | where | regex | block
+blog post | tigermorning.github.io | path | ^ko/[^/]+\.html$ |
+leak | !private-* | content | (?i)secret-project | block
+vendored asset | * | path | (^|/)vendor/
+```
+"""
+    BLOG = "diff --git a/ko/new.html b/ko/new.html\n@@ -0,0 +1 @@\n+<h1>x</h1>\n"
+    LEAK = "diff --git a/README.md b/README.md\n@@ -1 +1,2 @@\n+see secret-project notes\n"
+    VENDOR = "diff --git a/vendor/three.js b/vendor/three.js\n@@ -0,0 +1 @@\n+x\n"
+    with tempfile.TemporaryDirectory() as d:
+        std = Path(d) / "review-standards.md"
+        std.write_text(STD, encoding="utf-8")
+        rules = cpb.load_user_signals(std)
+        if [r["label"] for r in rules] != ["blog post", "leak", "vendored asset"] or not rules[1]["block"]:
+            failed.append(f"user rules parsed wrong: {rules}")
+
+        def user(name, diff, repo, ok, has=None, lacks=None, body=GOOD):
+            rep = cpb.check(body, diff, rules, repo)
+            if rep["ok"] != ok or (has and has not in rep["one_way_signals"]) or (lacks and lacks in rep["one_way_signals"]):
+                failed.append(f"user rule {name}: {rep}")
+
+        if any(r["pattern"].pattern.endswith("|") for r in rules):
+            failed.append(f"trailing empty cell glued onto a regex: {[r['pattern'].pattern for r in rules]}")
+        user("blog path in blog repo", BLOG, "tigermorning.github.io", False, has="yours: blog post")
+        user("other path in blog repo", "diff --git a/README.md b/README.md\n@@ -1 +1 @@\n+x\n", "tigermorning.github.io",
+             True, lacks="yours: blog post")
+        user("non-vendor path", "diff --git a/src/app.py b/src/app.py\n@@ -1 +1 @@\n+x\n", None, True, lacks="yours: vendored asset")
+        user("blog path elsewhere", BLOG, "my-skills", True, lacks="yours: blog post")
+        user("blog rule with unknown repo", BLOG, None, True, lacks="yours: blog post")
+        user("leak in a README blocks", LEAK, "my-skills", False, has="yours: leak",
+             body=GOOD.replace("**Door:** two-way", "**Door:** one-way"))
+        user("leak rule skips its own repos", LEAK, "private-notes", True, lacks="yours: leak")
+        user("any-repo path rule", VENDOR, None, False, has="yours: vendored asset")
+        user("explained two-way next to a user signal", VENDOR, "x", True, has="yours: vendored asset",
+             body=GOOD.replace("**Door:** two-way", "**Door:** two-way (pinned copy, revert drops it)"))
+
+        for glob, repo, want in (("*", None, True), ("!private-*", "private-a", False), ("!private-*", "blog", True),
+                                 ("My-Skills", "my-skills", True), ("blog", None, False), ("!private-*", None, False),
+                                 ("!private-*,!game-proto", "game-proto", False), ("!private-*,!game-proto", "blog", True),
+                                 ("blog, notes", "notes", True), ("blog, notes", "other", False)):
+            if cpb.repo_matches(glob, repo) != want:
+                failed.append(f"repo_matches({glob!r}, {repo!r}) should be {want}")
+
+        code, out, err = cli(["--repo", "tigermorning.github.io"], body=GOOD, diff_bytes=BLOG.encode(), std=str(std))
+        rep = json.loads(out) if code in (0, 1) else {}
+        if code != 1 or rep.get("user_standards") != str(std) or "yours: blog post" not in rep.get("one_way_signals", []):
+            failed.append(f"REVIEW_STANDARDS env not used: {code} {out} {err}")
+        code, out, _ = cli(["--repo", "tigermorning.github.io", "--no-user-standards"], body=GOOD,
+                           diff_bytes=BLOG.encode(), std=str(std))
+        if code != 0 or json.loads(out)["user_standards"] is not None:
+            failed.append(f"--no-user-standards should skip the file: {code} {out}")
+        code, _, err = cli(["--user-standards", str(Path(d) / "missing.md")], body=GOOD)
+        if code != 2 or "not found" not in err:
+            failed.append(f"named but missing standards file must be exit 2, got {code} {err}")
+        bad = Path(d) / "bad.md"
+        bad.write_text("```one-way\nx | * | content | (unclosed\n```\n", encoding="utf-8")
+        code, _, err = cli(["--user-standards", str(bad)], body=GOOD)
+        if code != 2 or "bad regex" not in err:
+            failed.append(f"bad user regex must be exit 2, got {code} {err}")
+        bad.write_text("```one-way\nall | * | path | (a|) |\n```\n", encoding="utf-8")
+        code, _, err = cli(["--user-standards", str(bad)], body=GOOD)
+        if code != 2 or "empty string" not in err:
+            failed.append(f"a regex matching everything must be exit 2, got {code} {err}")
+        bad.write_text("```one-way\nonly | two\n```\n", encoding="utf-8")
+        code, _, err = cli(["--user-standards", str(bad)], body=GOOD)
+        if code != 2:
+            failed.append(f"malformed user rule must be exit 2, got {code} {err}")
 
     for f in failed:
         print("FAIL", f)
