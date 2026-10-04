@@ -24,8 +24,10 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -157,11 +159,15 @@ def last_json(text):
 def review(repo, cfg, branch, base_ref, body_path, mdanger):
     std = mdanger.find_user_standards()
     repo_std = Path(repo) / "CODING_STANDARDS.md"
-    prompt = review_prompt(base_ref, branch, body_path, str(std) if std else None, str(repo_std) if repo_std.is_file() else None)
+    # The agent may not write under .git (Claude Code guards it), so it writes the body to a scratch
+    # directory it is given, and the pipeline copies it into the state directory.
+    scratch = Path(tempfile.mkdtemp(prefix="pr-pipeline-"))
+    draft = scratch / body_path.name
+    prompt = review_prompt(base_ref, branch, draft, str(std) if std else None, str(repo_std) if repo_std.is_file() else None)
     # User settings only: the user's guard hooks still apply, but a repository's own hooks (a session
     # logger that commits on SessionEnd, for one) must not add commits to the branch under review.
     args = [*cmd_from_env("PR_PIPELINE_CLAUDE", "claude"), "-p", "--output-format", "json", "--setting-sources", "user",
-            "--permission-mode", "acceptEdits", "--max-turns", str(cfg["review"]["max_turns"])]
+            "--permission-mode", "acceptEdits", "--max-turns", str(cfg["review"]["max_turns"]), "--add-dir", str(scratch)]
     if std:
         args += ["--add-dir", str(Path(std).parent)]
     if cfg["review"].get("model"):
@@ -172,6 +178,10 @@ def review(repo, cfg, branch, base_ref, body_path, mdanger):
         r = sh(args, repo, check=False, input_text=prompt, timeout=cfg["review"]["timeout_sec"])
     except subprocess.TimeoutExpired:
         raise StageError("review", f"review agent ran past {cfg['review']['timeout_sec']}s")
+    finally:
+        if draft.is_file():
+            shutil.copyfile(draft, body_path)
+        shutil.rmtree(scratch, ignore_errors=True)
     try:
         outer = json.loads(r.stdout)
     except json.JSONDecodeError:
@@ -290,6 +300,8 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
     rev = {"title": None, "questions": [], "fixed": [], "commits": []}
     if cfg["review"]["enabled"] and not no_review:
         scope = set(changed_paths_and_lines(repo, base_ref)[0])
+        # A body left by an earlier run must not pass for one this review did not write.
+        body_path.unlink(missing_ok=True)
         rev = review(repo, cfg, branch, base_ref, body_path, mdanger)
         for c in rev["commits"]:
             subject = git(repo, "log", "-1", "--format=%s", c)
@@ -317,7 +329,7 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
     repo_name = Path(git(repo, "rev-parse", "--show-toplevel")).name
     body = body_path.read_text(encoding="utf-8-sig")
     report = mdanger.check(body, diff, rules, repo_name)
-    hits, user_hits = mdanger._scan(diff, rules, repo_name)
+    hits, user_hits = mdanger.scan_signals(diff, rules, repo_name)
     paths, nlines = changed_paths_and_lines(repo, base_ref)
     log.update(body=report, changed_lines=nlines, paths=paths)
 

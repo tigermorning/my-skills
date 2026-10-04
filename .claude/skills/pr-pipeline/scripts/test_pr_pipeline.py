@@ -32,6 +32,7 @@ import json, os, re, subprocess, sys
 prompt = sys.stdin.read()
 open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write("called\n")
 body_path = re.search(r"BODY_PATH: (.+)", prompt).group(1).strip()
+open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write("BODY " + body_path + "\n")
 mode = os.environ.get("FAKE_REVIEW", "clean")
 open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write(" ".join(sys.argv[1:]) + "\n")
 if mode == "autherror":
@@ -128,9 +129,11 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     failed = []
 
-    def case(name, cfg=None, files=None, args=(), want_code=0, want_ok=None, reason=None, check=None, **env):
+    def case(name, cfg=None, files=None, args=(), want_code=0, want_ok=None, reason=None, check=None, before=None, **env):
         with tempfile.TemporaryDirectory() as d:
             work, origin = make_repo(d, cfg, files)
+            if before:
+                before(work)
             code, log, err, calls, claude_called = pipeline(work, d, args, **env)
             problems = []
             if code != want_code:
@@ -190,6 +193,24 @@ if __name__ == "__main__":
         return [] if "--setting-sources user" in args else ["review agent not limited to user settings (repo hooks would run)"]
     case("review agent runs with user settings only", want_ok=True, check=user_settings_only)
     case("no body stops", want_code=1, FAKE_REVIEW="nobody")
+
+    def stale_body(work):
+        state = Path(git(work, "rev-parse", "--absolute-git-dir")) / "pr-pipeline"
+        state.mkdir()
+        (state / "feat_x.md").write_text(GOOD_BODY, encoding="utf-8")
+    case("a body left by an earlier run does not pass for this review", want_code=1, FAKE_REVIEW="nobody", before=stale_body)
+
+    def body_outside_git(work, origin, log, err, calls, claude_called):
+        lines = (Path(work).parent / "claude.log").read_text(encoding="utf-8").splitlines()
+        body = next(l[5:] for l in lines if l.startswith("BODY "))
+        args = next(l for l in lines if l.startswith("-p "))
+        out = []
+        if ".git" in Path(body).parts:
+            out.append(f"review agent told to write the body under .git (Claude Code blocks it): {body}")
+        if f"--add-dir {Path(body).parent}" not in args:
+            out.append("the body's directory is not given to the agent with --add-dir")
+        return out
+    case("review agent writes the body where it is allowed to", want_ok=True, check=body_outside_git)
     case("no JSON line becomes a question", want_ok=False, reason="question", FAKE_REVIEW="nojson")
     case("one-way door needs a person", want_ok=False, reason="door is one-way",
          FAKE_BODY=GOOD_BODY.replace("**Door:** two-way", "**Door:** one-way"))

@@ -251,11 +251,11 @@ def diff_paths(header):
 
 
 def scan_diff(diff, user_rules=(), repo=None):
-    return _scan(diff, user_rules, repo)[0]
+    return scan_signals(diff, user_rules, repo)[0]
 
 
-def _scan(diff, user_rules, repo):
-    """One-way signal labels: path signals from header lines, content signals from +/- lines of
+def scan_signals(diff, user_rules, repo):
+    """(one-way signal labels, user rules that matched): path signals from header lines, content signals from +/- lines of
     non-document files. '---'/'+++' inside a hunk is a changed line, not a header.
     User rules (already filtered by repo) also read documents: a private name in a README leaks too."""
     hits, in_hunk, doc = [], False, False
@@ -328,7 +328,7 @@ def check(body, diff=None, user_rules=(), repo=None):
             problems.append("Merge Danger needs 'Blast radius: <one word>', e.g. localized, module, users, data")
             radius = ""
 
-    hits, user_hits = _scan(diff, user_rules, repo) if diff else ([], [])
+    hits, user_hits = scan_signals(diff, user_rules, repo) if diff else ([], [])
     for rule in user_hits:
         if rule["block"]:
             problems.append(f"blocked by your one-way rule: {rule['label']} — take it out of this change")
