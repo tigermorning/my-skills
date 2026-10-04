@@ -273,7 +273,7 @@ def verdict_comment(ok, reasons, auto, merged):
     return "\n".join(lines)
 
 
-def run(repo, cfg, branch=None, dry_run=False, no_review=False):
+def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
     mdanger = load_merge_danger()
     log = {"started": time.strftime("%Y-%m-%dT%H:%M:%S"), "dry_run": dry_run}
     branch, base_ref = preflight(repo, cfg, branch)
@@ -324,7 +324,7 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False):
     checks_ok = not any(c["code"] for c in log.get("checks_after_review", checks))
     pr, ci = None, "none"
     if not dry_run:
-        title = rev.get("title") or git(repo, "log", "-1", "--format=%s", f"{base_ref}..HEAD")
+        title = title or rev.get("title") or git(repo, "log", "-1", "--format=%s", f"{base_ref}..HEAD")
         pr = publish(repo, cfg, branch, title, body_path)
         ci = wait_ci(repo, pr["number"], cfg["ci_timeout_sec"])
     ok, reasons = decide(cfg, checks_ok=checks_ok, ci=ci, body_report=report, questions=rev["questions"],
@@ -350,6 +350,7 @@ def main():
     r.add_argument("--branch")
     r.add_argument("--dry-run", action="store_true", help="stop before push: checks, review, body and a verdict without CI")
     r.add_argument("--no-review", action="store_true", help="skip the review agent (the body must already exist)")
+    r.add_argument("--title", help="PR title (default: the review agent's, else the last commit subject)")
     r.add_argument("--config")
     r.add_argument("--repo", default=".")
     r.add_argument("--json", action="store_true")
@@ -359,7 +360,7 @@ def main():
     try:
         repo = git(a.repo, "rev-parse", "--show-toplevel")
         cfg = load_config(repo, a.config)
-        log = run(repo, cfg, a.branch, a.dry_run, a.no_review)
+        log = run(repo, cfg, a.branch, a.dry_run, a.no_review, a.title)
     except StageError as e:
         print(f"STOP {e}", file=sys.stderr)
         return e.code
