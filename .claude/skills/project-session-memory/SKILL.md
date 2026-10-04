@@ -44,10 +44,16 @@ description: Sets up automatic cross-session memory for a specific project/repo,
 그래서 역할을 나눕니다:
 
 - **SessionEnd** (기계적, 빠름): 방금 끝난 세션의 transcript 꼬리 부분을
-  그대로 `.claude/memory/inbox/<session_id>.md`에 저장하고, 그 파일 하나만
-  로컬 `git commit`까지 합니다 (`git add`/`commit --only`를 이 파일에만
+  그대로 `.claude/memory/inbox/<session_id>.md`에 저장하고, inbox 폴더만
+  로컬 `git commit`까지 합니다 (`git add`/`commit --only`를 inbox 폴더에만
   한정해서, 사용자가 작업 중이던 다른 staged 변경을 절대 같이 쓸어담지
   않습니다). 요약 안 함, 판단 안 함 — 그냥 원본 캡처 + 로컬 커밋.
+  - merge·rebase·cherry-pick 이 열려 있거나, 합치기 관문이 merge 를 열어 둔 채
+    검사 중이면(git-dir 의 `merge-gate.running`, 한 시간 넘은 것은 무시) 커밋하지
+    않습니다. 그때 커밋하면 HEAD 가 merge 밑에서 움직여 merge 가 실패합니다
+    (`cannot lock ref 'HEAD'`, 시험으로 재현). 캡처 파일은 남고, 다음 세션 끝에
+    inbox 째로 함께 커밋됩니다.
+  - `jq` 가 있어야 합니다. 없으면 이 훅은 아무것도 남기지 않고 조용히 끝납니다.
 - **SessionStart** (판단은 다음 세션의 Claude가): 새 세션이 시작되면
   `.claude/memory/session-log.md`(정제된 누적 요약)와 아직 정리 안 된
   `.claude/memory/inbox/*.md`(원본 캡처)를 컨텍스트로 주입합니다. 그리고
