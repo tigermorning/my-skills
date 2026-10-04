@@ -62,11 +62,22 @@ mkdir -p "$inbox"
 # block the session from actually ending. Restricted to this one file
 # (git add -- / commit --only --) so we never sweep up or commit whatever
 # else the user had staged mid-work.
+#
+# Never commit while a merge or rebase is open: the commit would move HEAD under it and the merge
+# would fail ("cannot lock ref 'HEAD'"). That covers a conflicted merge and a merge gate that holds a
+# clean merge open while it runs checks (it leaves merge-gate.running in the git dir; one older than an
+# hour is a gate that was killed, so it is ignored). The capture stays on disk, and because the commit
+# below takes every file in the inbox, the next session end carries it along.
 (
   cd "$project_dir" || exit 0
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+  gitdir="$(git rev-parse --absolute-git-dir)" || exit 0
+  for open in MERGE_HEAD rebase-merge rebase-apply CHERRY_PICK_HEAD; do
+    [ -e "$gitdir/$open" ] && exit 0
+  done
+  [ -n "$(find "$gitdir" -maxdepth 1 -name merge-gate.running -mmin -60 2>/dev/null)" ] && exit 0
 
-  git add -- "$out" || exit 0
-  git diff --cached --quiet -- "$out" && exit 0
-  git commit -q --only -m "project-session-memory: capture session $session_id" -- "$out" || exit 0
+  git add -- "$inbox" || exit 0
+  git diff --cached --quiet -- "$inbox" && exit 0
+  git commit -q --only -m "project-session-memory: capture session $session_id" -- "$inbox" || exit 0
 ) || true
