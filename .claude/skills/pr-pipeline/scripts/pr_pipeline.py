@@ -158,7 +158,9 @@ def review(repo, cfg, branch, base_ref, body_path, mdanger):
     std = mdanger.find_user_standards()
     repo_std = Path(repo) / "CODING_STANDARDS.md"
     prompt = review_prompt(base_ref, branch, body_path, str(std) if std else None, str(repo_std) if repo_std.is_file() else None)
-    args = [*cmd_from_env("PR_PIPELINE_CLAUDE", "claude"), "-p", "--output-format", "json",
+    # User settings only: the user's guard hooks still apply, but a repository's own hooks (a session
+    # logger that commits on SessionEnd, for one) must not add commits to the branch under review.
+    args = [*cmd_from_env("PR_PIPELINE_CLAUDE", "claude"), "-p", "--output-format", "json", "--setting-sources", "user",
             "--permission-mode", "acceptEdits", "--max-turns", str(cfg["review"]["max_turns"])]
     if std:
         args += ["--add-dir", str(Path(std).parent)]
@@ -170,13 +172,17 @@ def review(repo, cfg, branch, base_ref, body_path, mdanger):
         r = sh(args, repo, check=False, input_text=prompt, timeout=cfg["review"]["timeout_sec"])
     except subprocess.TimeoutExpired:
         raise StageError("review", f"review agent ran past {cfg['review']['timeout_sec']}s")
-    if r.returncode != 0:
-        raise StageError("review", f"review agent exit {r.returncode}: {(r.stderr or r.stdout).strip()[:400]}")
     try:
         outer = json.loads(r.stdout)
-        text = outer.get("result", "") if isinstance(outer, dict) else r.stdout
     except json.JSONDecodeError:
-        text = r.stdout
+        outer = None
+    if isinstance(outer, dict) and outer.get("is_error"):
+        msg = str(outer.get("result") or "")
+        hint = " — log in again: run `claude` in a terminal and use /login" if re.search(r"auth|login|OAuth", msg, re.I) else ""
+        raise StageError("review", f"review agent failed: {msg[:300]}{hint}")
+    if r.returncode != 0:
+        raise StageError("review", f"review agent exit {r.returncode}: {(r.stderr or r.stdout).strip()[:400]}")
+    text = outer.get("result", "") if isinstance(outer, dict) else r.stdout
     answer = last_json(text) or {}
     if git(repo, "status", "--porcelain"):
         raise StageError("review", "review agent left uncommitted changes; look at the tree before rerunning")
@@ -286,6 +292,9 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False):
         scope = set(changed_paths_and_lines(repo, base_ref)[0])
         rev = review(repo, cfg, branch, base_ref, body_path, mdanger)
         for c in rev["commits"]:
+            subject = git(repo, "log", "-1", "--format=%s", c)
+            if not subject.startswith("review:"):
+                rev["questions"].append(f"commit {c[:7]} '{subject[:60]}' appeared during review but is not a review fix")
             outside = [p for p in git(repo, "show", "--name-only", "--format=", c).splitlines() if p and p not in scope]
             if outside:
                 rev["questions"].append(f"review commit {c[:7]} touched files outside the change: {', '.join(outside)}")

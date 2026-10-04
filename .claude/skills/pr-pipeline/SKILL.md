@@ -74,7 +74,12 @@ python ~/.claude/skills/pr-pipeline/scripts/pr_pipeline.py run
 - 기록: `.git/pr-pipeline/<브랜치>.json` (저장소 밖이라 커밋되지 않음).
 - 끝나면 사용자에게 판정 한 줄 + 이유 + PR 링크를 알린다. 사람이 볼 것만 골라 보낸다.
 
-셀프 테스트: `python scripts/test_pr_pipeline.py` — 가짜 원격 저장소·가짜 `claude`·가짜 `gh` 로 판정 경로 19가지.
+셀프 테스트: `python scripts/test_pr_pipeline.py` — 가짜 원격 저장소·가짜 `claude`·가짜 `gh` 로 판정 경로 22가지.
+
+## 실제로 돌려 보고 막은 것
+
+- **저장소 훅이 리뷰 세션에도 돈다**: 세션 기록 훅(SessionEnd)이 headless 리뷰 세션 내용을 기능 브랜치에 커밋했다. 리뷰 에이전트는 `--setting-sources user` 로 띄운다(사용자 가드 훅은 그대로). 그래도 리뷰 중 `review:` 가 아닌 커밋이 생기면 질문이 된다.
+- **CLI 로그인 만료**: `claude -p` 가 1턴·토큰 0으로 끝났다. `is_error` 의 원문을 그대로 보여 주고, 로그인 문제면 `claude` → `/login` 을 안내한다.
 
 ## 하지 않는 것
 

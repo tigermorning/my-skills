@@ -33,6 +33,10 @@ prompt = sys.stdin.read()
 open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write("called\n")
 body_path = re.search(r"BODY_PATH: (.+)", prompt).group(1).strip()
 mode = os.environ.get("FAKE_REVIEW", "clean")
+open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write(" ".join(sys.argv[1:]) + "\n")
+if mode == "autherror":
+    print(json.dumps({"type": "result", "is_error": True, "result": "Failed to authenticate: OAuth session expired"}))
+    sys.exit(1)
 def commit(path, text, msg):
     with open(path, "a", encoding="utf-8") as f:
         f.write(text)
@@ -45,6 +49,8 @@ if mode == "break":
     commit("FAIL", "x\n", "review: oops"); fixed.append("review: oops")
 if mode == "outside":
     commit("other.py", "x = 1\n", "review: touch other"); fixed.append("review: touch other")
+if mode == "foreign":
+    commit("app.py", "# session log\n", "project-session-memory: capture session x")
 if mode == "dirty":
     open("app.py", "a", encoding="utf-8").write("# left behind\n")
 if mode == "question":
@@ -174,6 +180,15 @@ if __name__ == "__main__":
     case("review fix that breaks checks is reverted", want_ok=False, FAKE_REVIEW="break", check=reverted)
     case("review touching other files becomes a question", want_ok=False, reason="question", FAKE_REVIEW="outside")
     case("review leaving a dirty tree stops", want_code=1, FAKE_REVIEW="dirty")
+    case("a non-review commit during review becomes a question", want_ok=False, reason="question", FAKE_REVIEW="foreign",
+         check=lambda w, o, log, *a: [] if any("not a review fix" in q for q in log["review"]["questions"]) else ["foreign commit not flagged"])
+    case("expired login stops with the agent's own message", want_code=1, FAKE_REVIEW="autherror",
+         check=lambda w, o, log, err, *a: [] if "OAuth session expired" in err and "/login" in err else [f"message lost: {err[:200]}"])
+
+    def user_settings_only(work, origin, log, err, calls, claude_called):
+        args = (Path(work).parent / "claude.log").read_text(encoding="utf-8")
+        return [] if "--setting-sources user" in args else ["review agent not limited to user settings (repo hooks would run)"]
+    case("review agent runs with user settings only", want_ok=True, check=user_settings_only)
     case("no body stops", want_code=1, FAKE_REVIEW="nobody")
     case("no JSON line becomes a question", want_ok=False, reason="question", FAKE_REVIEW="nojson")
     case("one-way door needs a person", want_ok=False, reason="door is one-way",
