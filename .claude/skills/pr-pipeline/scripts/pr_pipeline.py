@@ -119,7 +119,7 @@ def preflight(repo, cfg, branch):
     return branch, base_ref
 
 
-def review_prompt(base_ref, branch, body_path, standards, repo_standards):
+def review_prompt(base_ref, branch, body_path, standards, repo_standards, checks=()):
     std = "\n".join(f"- {p}" for p in [standards, repo_standards] if p) or "- (none; use the default list below)"
     return f"""You are the review pass of a PR pipeline. No human is watching; work alone and finish.
 Repository: the current directory. Branch: {branch}. Review the change {base_ref}...HEAD.
@@ -134,7 +134,8 @@ Rules:
 1. Fix only what you are sure of, only in files this change already touches, without changing behaviour.
    Commit each fix with `git commit -m "review: <what>"`. Never push, reset, rebase or switch branches.
 2. Anything you are not sure of becomes a question, not a fix.
-3. Run the repository's quick checks after fixing if you know them.
+3. After you finish, the pipeline runs these checks and reverts your fixes if they fail: {', '.join(checks) or '(none)'}.
+   They can take minutes; if you run one yourself, give the Bash tool a long timeout.
 4. Write the PR body to BODY_PATH: {body_path}
    Sections in order: "## Summary" (the smallest picture: pseudocode, call tree or file tree, plus a few lines),
    "## Evidence" (commands that were run and what they printed — run them yourself), "## Merge Danger" with
@@ -163,7 +164,8 @@ def review(repo, cfg, branch, base_ref, body_path, mdanger):
     # directory it is given, and the pipeline copies it into the state directory.
     scratch = Path(tempfile.mkdtemp(prefix="pr-pipeline-"))
     draft = scratch / body_path.name
-    prompt = review_prompt(base_ref, branch, draft, str(std) if std else None, str(repo_std) if repo_std.is_file() else None)
+    prompt = review_prompt(base_ref, branch, draft, str(std) if std else None, str(repo_std) if repo_std.is_file() else None,
+                           cfg["checks"])
     # User settings only: the user's guard hooks still apply, but a repository's own hooks (a session
     # logger that commits on SessionEnd, for one) must not add commits to the branch under review.
     args = [*cmd_from_env("PR_PIPELINE_CLAUDE", "claude"), "-p", "--output-format", "json", "--setting-sources", "user",
@@ -197,7 +199,15 @@ def review(repo, cfg, branch, base_ref, body_path, mdanger):
     if git(repo, "status", "--porcelain"):
         raise StageError("review", "review agent left uncommitted changes; look at the tree before rerunning")
     commits = git(repo, "rev-list", "--reverse", f"{before}..HEAD").split()
-    return {"title": answer.get("title"), "questions": list(answer.get("questions") or []),
+    questions = list(answer.get("questions") or [])
+    # Claude Code refuses edits under protected folders such as .claude/ even with an allow rule, so a
+    # fix the agent wanted can vanish; name what it could not touch instead of passing quietly.
+    denials = outer.get("permission_denials") if isinstance(outer, dict) else None
+    denied = sorted({str((d.get("tool_input") or {}).get("file_path") or d.get("tool_name"))
+                     for d in denials or [] if isinstance(d, dict)})
+    if denied:
+        questions.append("the review agent was refused permission and could not fix: " + ", ".join(denied))
+    return {"title": answer.get("title"), "questions": questions,
             "fixed": list(answer.get("fixed") or []), "commits": commits, "answer_found": bool(answer)}
 
 
@@ -329,7 +339,7 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
     repo_name = Path(git(repo, "rev-parse", "--show-toplevel")).name
     body = body_path.read_text(encoding="utf-8-sig")
     report = mdanger.check(body, diff, rules, repo_name)
-    hits, user_hits = mdanger.scan_signals(diff, rules, repo_name)
+    _, user_hits = mdanger.scan_signals(diff, rules, repo_name)
     paths, nlines = changed_paths_and_lines(repo, base_ref)
     log.update(body=report, changed_lines=nlines, paths=paths)
 

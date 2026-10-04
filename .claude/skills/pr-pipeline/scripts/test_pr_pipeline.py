@@ -62,6 +62,9 @@ if mode != "nobody":
 answer = {"title": "Add helper", "questions": questions, "fixed": fixed}
 if mode == "nojson":
     print(json.dumps({"type": "result", "result": "done, no json line"}))
+elif mode == "denied":
+    print(json.dumps({"type": "result", "result": "done\n" + json.dumps(answer), "permission_denials": [
+        {"tool_name": "Edit", "tool_input": {"file_path": ".claude/skills/a/x.py"}}]}))
 else:
     print(json.dumps({"type": "result", "result": "done\n" + json.dumps(answer)}))
 '''.replace("GOOD", repr(GOOD_BODY), 1).replace("GOOD\n", repr(GOOD_BODY) + "\n")
@@ -211,6 +214,8 @@ if __name__ == "__main__":
             out.append("the body's directory is not given to the agent with --add-dir")
         return out
     case("review agent writes the body where it is allowed to", want_ok=True, check=body_outside_git)
+    case("an edit the agent was refused becomes a question", want_ok=False, reason="question", FAKE_REVIEW="denied",
+         check=lambda w, o, log, *a: [] if any(".claude/skills/a/x.py" in q for q in log["review"]["questions"]) else ["refused edit not reported"])
     case("no JSON line becomes a question", want_ok=False, reason="question", FAKE_REVIEW="nojson")
     case("one-way door needs a person", want_ok=False, reason="door is one-way",
          FAKE_BODY=GOOD_BODY.replace("**Door:** two-way", "**Door:** one-way"))

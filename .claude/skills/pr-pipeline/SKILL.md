@@ -74,7 +74,7 @@ python ~/.claude/skills/pr-pipeline/scripts/pr_pipeline.py run
 - 기록: `.git/pr-pipeline/<브랜치>.json` (저장소 밖이라 커밋되지 않음).
 - 끝나면 사용자에게 판정 한 줄 + 이유 + PR 링크를 알린다. 사람이 볼 것만 골라 보낸다.
 
-셀프 테스트: `python scripts/test_pr_pipeline.py` — 가짜 원격 저장소·가짜 `claude`·가짜 `gh` 로 판정 경로 24가지.
+셀프 테스트: `python scripts/test_pr_pipeline.py` — 가짜 원격 저장소·가짜 `claude`·가짜 `gh` 로 판정 경로 24가지와 직접 확인 3가지.
 
 ## 실제로 돌려 보고 막은 것
 
@@ -82,6 +82,8 @@ python ~/.claude/skills/pr-pipeline/scripts/pr_pipeline.py run
 - **CLI 로그인 만료**: `claude -p` 가 1턴·토큰 0으로 끝났다. `is_error` 의 원문을 그대로 보여 주고, 로그인 문제면 `claude` → `/login` 을 안내한다.
 - **리뷰 에이전트가 `.git` 아래에 못 쓴다**: 본문 경로가 `.git/pr-pipeline/` 이라 Claude Code 가 쓰기를 막았고, 파이프라인은 지난 실행의 본문으로 조용히 통과했다. 에이전트는 임시 폴더(`--add-dir`)에 쓰고 파이프라인이 옮긴다. 리뷰 전에 옛 본문을 지워, 이번 리뷰가 안 쓴 본문은 통과하지 못한다.
 - **비공개 함수 호출**: 리뷰 에이전트가 `check_pr_body._scan` 직접 호출을 질문으로 남겼다. 공개 함수 `scan_signals` 로 바꿨다.
+- **`.claude/` 아래는 리뷰어가 못 고친다**: Claude Code 가 보호 폴더 편집을 거부하고, `--allowedTools "Edit(.claude/**)"` 로도 풀리지 않았다(작은 저장소로 실험). 이 저장소처럼 코드가 `.claude/skills/` 에 있으면 리뷰어는 고칠 수 없고 질문만 남긴다. 거부된 편집(`permission_denials`)은 파일 이름과 함께 질문이 된다.
+- **리뷰어가 검사를 120초 안에 못 끝냄**: Bash 기본 시간 제한. 프롬프트에 설정의 검사 목록과 "파이프라인이 뒤에서 돌리고 깨지면 revert"를 알려 준다.
 
 ## 하지 않는 것
 
