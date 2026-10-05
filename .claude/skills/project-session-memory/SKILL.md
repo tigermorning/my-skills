@@ -48,6 +48,22 @@ description: Sets up automatic cross-session memory for a specific project/repo,
   로컬 `git commit`까지 합니다 (`git add`/`commit --only`를 inbox 폴더에만
   한정해서, 사용자가 작업 중이던 다른 staged 변경을 절대 같이 쓸어담지
   않습니다). 요약 안 함, 판단 안 함 — 그냥 원본 캡처 + 로컬 커밋.
+  - **커밋은 기본 브랜치에서만 합니다.** 기본 브랜치는 `origin/HEAD`
+    (`git symbolic-ref refs/remotes/origin/HEAD`)로 정하고, 원격이 없으면
+    `init.defaultBranch`, 그다음 `main`/`master` 중 있는 쪽입니다. 기능
+    브랜치는 PR 로 가므로, 거기에 캡처 커밋을 얹으면 상관없는 원본 대화가
+    리뷰에 섞여 push 됩니다(공개 저장소면 공개). 실제로 PR 파이프라인이 도는
+    기능 브랜치에 캡처 커밋이 얹혀 손으로 떼어 낸 일이 있습니다.
+  - 기본 브랜치가 아니면(기능 브랜치, detached HEAD) 캡처를 공유 git
+    디렉터리의 `session-memory-spool/`(`git rev-parse --git-common-dir` 아래)에
+    둡니다. 작업 트리 밖이라 뒤에 누가 `git add -A` 해도 기능 작업에 섞이지
+    않고, 모든 worktree 가 같은 곳을 쓰므로 worktree 를 지워도 남습니다.
+    다음에 기본 브랜치에서 세션이 끝날 때 spool 을 inbox 로 옮겨 함께
+    커밋합니다. SessionStart 도 spool 을 같이 읽어 보여 줍니다.
+  - 대가: 원격 컨테이너에서 기능 브랜치로만 일하다 컨테이너가 회수되면 그
+    세션들의 캡처는 사라집니다(spool 은 커밋도 push 도 안 됨). 커밋하는 원래
+    이유(컨테이너는 커밋 안 된 파일을 잃는다)는 기본 브랜치에서만 지켜집니다.
+    기능 브랜치를 오염시키지 않는 쪽을 골랐습니다.
   - merge·rebase·cherry-pick 이 열려 있거나, 합치기 관문이 merge 를 열어 둔 채
     검사 중이면(git-dir 의 `merge-gate.running`, 한 시간 넘은 것은 무시) 커밋하지
     않습니다. 그때 커밋하면 HEAD 가 merge 밑에서 움직여 merge 가 실패합니다
@@ -174,6 +190,9 @@ rewrite)을 시도할 위험이 실제로 있었습니다. 그래서
   때에 달려 있습니다. 세션이 끝난 뒤 아무 push도 없이 컨테이너가
   영구히 회수되면, 그 세션의 캡처는 로컬 커밋인 채로 함께 사라질 수
   있습니다.
+- **기본 브랜치가 아닌 곳에 커밋하지 않습니다** — 기능 브랜치·detached
+  HEAD 에서 끝난 세션의 캡처는 git 디렉터리의 `session-memory-spool/` 에서
+  기다렸다가 기본 브랜치 세션 끝에 커밋됩니다(위 SessionEnd 설명).
 - **다른 프로젝트와 메모리를 공유하지 않습니다** — 저장 위치가 각
   프로젝트의 `.claude/memory/`이므로 프로젝트별로 완전히 분리됩니다.
 - **비밀번호·토큰 같은 민감정보를 걸러주지 않습니다** — transcript를

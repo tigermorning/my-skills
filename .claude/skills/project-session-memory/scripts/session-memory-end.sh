@@ -24,6 +24,16 @@
 # last session's capture survives if nothing ever pushes again before the
 # container is permanently reclaimed — it reduces that risk to the same
 # level ordinary uncommitted dev work already has, no better, no worse.
+#
+# Commits go only onto the default branch. A feature branch is headed for a
+# PR, so a capture commit there gets pushed into a review it has nothing to
+# do with (public, if the repo is). Off the default branch (feature branch,
+# detached HEAD) the capture goes to session-memory-spool/ in the shared git
+# dir instead: outside the work tree so a later `git add -A` cannot sweep it
+# into feature work, shared by every worktree so removing a worktree does not
+# lose it. The next session end on the default branch moves the spool into
+# the inbox and commits it. Cost: a session that only ever runs on feature
+# branches in a container that is then reclaimed loses its captures.
 set -euo pipefail
 
 input="$(cat)"
@@ -34,12 +44,37 @@ session_id="$(printf '%s' "$input" | jq -r '.session_id // empty')"
 
 project_dir="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 inbox="$project_dir/.claude/memory/inbox"
-out="$inbox/$session_id.md"
 
-# Idempotent: if this session already has an inbox entry, don't duplicate it.
-[ -f "$out" ] && exit 0
+# origin/HEAD is what the remote calls its default; without a remote, fall back to
+# init.defaultBranch, then to whichever of main/master exists.
+default_branch() {
+  local ref name
+  if ref="$(git -C "$project_dir" symbolic-ref -q refs/remotes/origin/HEAD)"; then
+    echo "${ref#refs/remotes/origin/}"
+    return
+  fi
+  name="$(git -C "$project_dir" config init.defaultBranch || true)"
+  for b in $name main master; do
+    git -C "$project_dir" show-ref -q --verify "refs/heads/$b" && { echo "$b"; return; }
+  done
+}
 
-mkdir -p "$inbox"
+spool=""
+on_default=0
+if git -C "$project_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  spool="$(git -C "$project_dir" rev-parse --path-format=absolute --git-common-dir)/session-memory-spool"
+  branch="$(git -C "$project_dir" symbolic-ref -q --short HEAD || true)"
+  [ -n "$branch" ] && [ "$branch" = "$(default_branch)" ] && on_default=1
+fi
+if [ "$on_default" -eq 1 ] || [ -z "$spool" ]; then dest="$inbox"; else dest="$spool"; fi
+out="$dest/$session_id.md"
+
+# Idempotent: if this session already has an entry (in either place), don't duplicate it.
+if [ -f "$inbox/$session_id.md" ] || { [ -n "$spool" ] && [ -f "$spool/$session_id.md" ]; }; then
+  exit 0
+fi
+
+mkdir -p "$dest"
 
 {
   echo "### $(date -u +"%Y-%m-%dT%H:%M:%SZ") (session $session_id)"
@@ -54,6 +89,8 @@ mkdir -p "$inbox"
   ' 2>/dev/null | tail -n 40
   echo
 } >> "$out"
+
+[ "$on_default" -eq 1 ] || exit 0
 
 # --- commit locally, best-effort (no push — see header comment) ---
 # Failures here (no git repo, detached HEAD, nothing to commit) are
@@ -76,6 +113,10 @@ mkdir -p "$inbox"
     [ -e "$gitdir/$open" ] && exit 0
   done
   [ -n "$(find "$gitdir" -maxdepth 1 -name merge-gate.running -mmin -60 2>/dev/null)" ] && exit 0
+
+  for f in "$spool"/*.md; do
+    [ -f "$f" ] && mv -n -- "$f" "$inbox/"
+  done
 
   git add -- "$inbox" || exit 0
   git diff --cached --quiet -- "$inbox" && exit 0
