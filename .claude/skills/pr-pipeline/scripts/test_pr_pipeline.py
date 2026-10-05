@@ -34,6 +34,15 @@ log = os.environ["FAKE_CLAUDE_LOG"]
 if "DOOR_JUDGE" in prompt:
     # Judges run in parallel; appends to one file from several processes can lose lines on Windows.
     open(f"{log}.door-{os.getpid()}", "w", encoding="utf-8").write(" ".join(sys.argv[1:]))
+    if os.environ.get("FAKE_SNEAK"):
+        # Another session's hook committing to the checked-out branch after the review.
+        try:
+            os.close(os.open(log + ".sneak", os.O_CREAT | os.O_EXCL))
+            with open("app.py", "a", encoding="utf-8") as f:
+                f.write("# session log\n")
+            subprocess.run(["git", "commit", "-qam", "project-session-memory: capture session y"], check=True)
+        except FileExistsError:
+            pass
     door = os.environ.get("FAKE_DOOR", "two-way")
     if door == "split":
         try:
@@ -310,6 +319,9 @@ if __name__ == "__main__":
     case("review prompt names the checks with their env", cfg={"check_env": {"CI": "1"}}, want_ok=True, check=checks_with_env)
     case("no JSON line becomes a question", want_ok=False, reason="question", FAKE_REVIEW="nojson")
     case("one-way door needs a person", want_ok=False, reason="door is one-way", FAKE_DOOR="one-way")
+    case("a commit landing after the review stops before the push", want_code=1, FAKE_SNEAK="1",
+         check=lambda w, o, log, err, *a: no_push(w, o, log, err, None, None) +([] if "nothing was pushed" in err and "project-session-memory" in err
+                                                                    else [f"no clear stop message: {err[-300:]}"]))
 
     def judged_three_times_no_shell(work, origin, log, err, calls, claude_called):
         doors = [p.read_text(encoding="utf-8") + " " for p in Path(work).parent.glob("claude.log.door-*") if p.name != "claude.log.door-yes"]

@@ -524,6 +524,10 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
         if not rev["answer_found"]:
             rev["questions"].append("review agent did not end with the JSON line; read its commits by hand")
     log["review"] = rev
+    # What the checks, the review and the door judges saw. Another session's hook can commit to the checked-out
+    # branch at any time (a session logger did), and that commit must not ride along into the push.
+    ready = git(repo, "rev-parse", "HEAD")
+    log["head"] = ready
     if not body_path.is_file():
         raise StageError("body", f"no PR body at {body_path} (the review agent writes it; with --no-review write it yourself)")
 
@@ -543,6 +547,11 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
 
     checks_ok = not any(c["code"] for c in log.get("checks_after_review", checks))
     pr, ci = None, "none"
+    moved = git(repo, "log", "--format=%h %s", f"{ready}..HEAD")
+    if git(repo, "rev-parse", "HEAD") != ready or git(repo, "status", "--porcelain"):
+        raise StageError("publish", f"the branch changed after it was checked and reviewed; nothing was pushed. "
+                                    f"New commits: {moved or '(none; HEAD moved or the tree is dirty)'}. "
+                                    "Move them off this branch, then run again")
     if not dry_run:
         title = title or rev.get("title") or git(repo, "log", "-1", "--format=%s", f"{base_ref}..HEAD")
         pr = publish(repo, cfg, branch, title, body_path)
