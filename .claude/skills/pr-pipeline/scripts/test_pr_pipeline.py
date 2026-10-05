@@ -125,7 +125,8 @@ def make_repo(d, cfg_over=None, branch_files=None):
     subprocess.run(["git", "clone", "-q", str(origin), str(work)], check=True, capture_output=True)
     git(work, "config", "user.email", "t@example.com")
     git(work, "config", "user.name", "t")
-    (work / "check.py").write_text("import os, sys\nsys.exit(1 if os.path.exists('FAIL') or 'BROKEN' in open('app.py').read() else 0)\n",
+    (work / "check.py").write_text("import os, sys\nprint('covered: first of five')\nprint('2'); print('3'); print('4'); print('done')\n"
+                                   "sys.exit(1 if os.path.exists('FAIL') or 'BROKEN' in open('app.py').read() else 0)\n",
                                    encoding="utf-8")
     (work / "app.py").write_text("def app():\n    return 1\n", encoding="utf-8")
     cfg = {"base": "main", "checks": [f'"{PY}" check.py'], "auto_merge": False, "max_changed_lines": 400,
@@ -273,8 +274,11 @@ if __name__ == "__main__":
         out = []
         if "def add(x)" not in (d / "claude.log.diff").read_text(encoding="utf-8"):
             out.append("the change diff given to the agent lacks the change")
-        if "check.py" not in (d / "claude.log.checks").read_text(encoding="utf-8"):
-            out.append("the agent was not given what the checks printed")
+        given = (d / "claude.log.checks").read_text(encoding="utf-8")
+        if "check.py" not in given or "covered: first of five" not in given:
+            out.append(f"the agent was not given all the checks printed: {given!r}")
+        if any("output" in c for c in log["checks"]):
+            out.append("the run log keeps the full check output; it should keep only the tail")
         return out
     case("review agent gets the diff and the check output as files", want_ok=True, check=given_diff_and_checks)
     case("no body stops", want_code=1, FAKE_REVIEW="nobody")

@@ -167,12 +167,17 @@ def check_comment_hygiene():
 
 
 def check_self_tests():
-    """Run every test script that guards a tool: hook guards and skill-bundled checkers."""
+    """Run every test script that guards a tool: hook guards and skill-bundled checkers.
+    Returns the scripts that passed, so a reader of a green run can see what it covered."""
+    passed = []
     tests = [*sorted(ROOT.glob("scripts/test_*.py")), *sorted(ROOT.glob("scripts/hooks/test_*.py")), *sorted(ROOT.glob("scripts/skill-evals/test_*.py")), *sorted(SKILLS.glob("*/scripts/test_*.py"))]
     for t in tests:
         r = subprocess.run([sys.executable, str(t)], capture_output=True, text=True, encoding="utf-8")
         if r.returncode != 0:
             err(t.relative_to(ROOT), r.stdout.strip() or r.stderr.strip())
+        else:
+            passed.append(t.relative_to(ROOT).as_posix())
+    return passed
 
 
 def check_installed_copies():
@@ -202,13 +207,15 @@ def main():
         check_evals(d, grade)
         check_eval_freshness(d)
     check_comment_hygiene()
-    check_self_tests()
+    passed = check_self_tests()
     check_installed_copies()
     if errors:
         print("\n".join(f"FAIL {e}" for e in errors))
         print(f"{len(errors)} problem(s)")
         sys.exit(1)
-    print(f"ok: {len(dirs)} skills checked")
+    for t in passed:
+        print(f"self-test ok: {t}")
+    print(f"ok: {len(dirs)} skills checked, {len(passed)} self-tests passed")
 
 
 if __name__ == "__main__":

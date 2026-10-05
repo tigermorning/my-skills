@@ -49,6 +49,7 @@ DEFAULTS = {
 # The review agent reads and writes only fix files and the body into its scratch directory; the pipeline
 # applies the fixes and commits them. No shell: an allowed `python` or `node` could run `git push`.
 REVIEW_TOOLS = ["Read", "Grep", "Glob"]
+CHECK_OUTPUT_CHARS = 4000
 REVIEW_DENY = ["Bash", "WebFetch", "WebSearch", "NotebookEdit"]
 
 
@@ -102,9 +103,15 @@ def run_checks(repo, commands, extra_env=None):
     env = {**os.environ, **{k: str(v) for k, v in (extra_env or {}).items()}}
     for c in commands:
         r = subprocess.run(c, cwd=repo, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
-        tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
-        results.append({"cmd": c, "code": r.returncode, "tail": tail})
+        out = (r.stdout + r.stderr).strip()
+        # "tail" is for the run log; "output" is what the review agent reads as evidence. Three lines hid what
+        # a green check covered, and the agent then asked whether the tests had run at all.
+        results.append({"cmd": c, "code": r.returncode, "tail": out.splitlines()[-3:], "output": out[-CHECK_OUTPUT_CHARS:]})
     return results
+
+
+def for_log(checks):
+    return [{k: v for k, v in c.items() if k != "output"} for c in checks]
 
 
 def preflight(repo, cfg, branch):
@@ -249,7 +256,7 @@ def _review(repo, cfg, branch, base_ref, body_path, std, repo_std, scratch, chec
     (scratch / "fixes").mkdir()
     (scratch / "change.diff").write_text(git(repo, "diff", f"{base_ref}...HEAD"), encoding="utf-8")
     (scratch / "commits.txt").write_text(git(repo, "log", "--format=%h %s%n%n%b", f"{base_ref}..HEAD"), encoding="utf-8")
-    (scratch / "checks.txt").write_text("\n\n".join(f"$ {c['cmd']}\nexit {c['code']}\n" + "\n".join(c["tail"])
+    (scratch / "checks.txt").write_text("\n\n".join(f"$ {c['cmd']}\nexit {c['code']}\n" + c.get("output", "\n".join(c["tail"]))
                                                    for c in checks_run) or "(no checks configured)", encoding="utf-8")
     draft = scratch / body_path.name
     # With the env the pipeline uses: the same command without it can fail for a local reason (check_skills
@@ -490,7 +497,7 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
     body_path = state_dir / f"{re.sub(r'[^A-Za-z0-9._-]', '_', branch)}.md"
 
     checks = run_checks(repo, cfg["checks"], cfg.get("check_env"))
-    log["checks"] = checks
+    log["checks"] = for_log(checks)
     if any(c["code"] for c in checks):
         raise StageError("checks", "failed: " + "; ".join(c["cmd"] for c in checks if c["code"]))
 
@@ -513,7 +520,7 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
                 git(repo, "revert", "--no-edit", c)
             rev["questions"].append("review fixes broke the checks and were reverted: " + ", ".join(rev["commits"]))
             again = run_checks(repo, cfg["checks"], cfg.get("check_env"))
-        log["checks_after_review"] = again
+        log["checks_after_review"] = for_log(again)
         if not rev["answer_found"]:
             rev["questions"].append("review agent did not end with the JSON line; read its commits by hand")
     log["review"] = rev
