@@ -92,6 +92,7 @@ python ~/.claude/skills/pr-pipeline/scripts/pr_pipeline.py run
 - **CLI 로그인 만료**: `claude -p` 가 1턴·토큰 0으로 끝났다. `is_error` 의 원문을 그대로 보여 주고, 로그인 문제면 `claude` → `/login` 을 안내한다.
 - **리뷰 에이전트가 `.git` 아래에 못 쓴다**: 본문 경로가 `.git/pr-pipeline/` 이라 Claude Code 가 쓰기를 막았고, 파이프라인은 지난 실행의 본문으로 조용히 통과했다. 에이전트는 임시 폴더(`--add-dir`)에 쓰고 파이프라인이 옮긴다. 리뷰 전에 옛 본문을 지워, 이번 리뷰가 안 쓴 본문은 통과하지 못한다.
 - **리뷰어에게 셸이 있었다**: `Bash(python:*)`·`Bash(node:*)` 를 허용해 두어 파이썬으로 `git push` 를 부를 수 있었다(리뷰어가 스스로 질문으로 남김). 지금은 Bash·웹을 모두 막고 Read·Grep·Glob 과 임시 폴더 한정 쓰기만 준다. 쓰기 규칙은 `Edit(//c/<경로>/**)` 형식이어야 먹었다(`Write(...)`·`//C:/`·`/C:/` 는 거부 — 실험). 모드는 `default`: `-p` 에서 허용 밖은 전부 거부된다.
+- **수정안 경로 실제 시연**: `.claude/skills/` 파일에 이력 주석 한 줄을 넣은 브랜치로 dry-run — 리뷰어가 수정안 파일을 쓰고 파이프라인이 `review: remove history comment above last_json` 으로 커밋, 검사 다시 통과. 권한 거부 0건.
 - **비공개 함수 호출**: 리뷰 에이전트가 `check_pr_body._scan` 직접 호출을 질문으로 남겼다. 공개 함수 `scan_signals` 로 바꿨다.
 - **`.claude/` 아래는 리뷰어가 못 고친다**: Claude Code 가 보호 폴더 편집을 거부하고, `--allowedTools "Edit(.claude/**)"` 로도 풀리지 않았다(작은 저장소로 실험). 그래서 리뷰어는 수정안 파일만 쓰고 파이프라인이 적용·커밋한다 — `.claude/` 아래도 고쳐진다. 거부된 도구 호출(`permission_denials`)은 파일 이름·명령과 함께 질문이 된다.
 - **리뷰어가 검사를 120초 안에 못 끝냄**: Bash 기본 시간 제한. 지금은 리뷰어가 검사를 돌리지 않는다 — 리뷰 전 검사 출력을 파일로 받아 Evidence 에 쓰고, 수정안 적용 뒤 검사는 파이프라인이 돌린다.
