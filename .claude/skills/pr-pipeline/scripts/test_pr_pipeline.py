@@ -233,7 +233,7 @@ if __name__ == "__main__":
          check=lambda w, o, log, *a: no_commits(w, o, log) + ([] if any("not a file this change touches" in q for q in log["review"]["questions"]) else ["no question"]))
     case("a fix whose old text appears twice is dropped", want_ok=False, reason="question", FAKE_REVIEW="ambiguous",
          check=lambda w, o, log, *a: no_commits(w, o, log) + ([] if any("2 times" in q for q in log["review"]["questions"]) else ["no question"]))
-    case("a fix path leaving the repository is dropped",want_ok=False, reason="question", FAKE_REVIEW="escape", check=no_commits)
+    case("a fix path leaving the repository is dropped", want_ok=False, reason="question", FAKE_REVIEW="escape", check=no_commits)
     case("of two fixes the one that does not match is dropped, the other committed", want_ok=False, reason="question", FAKE_REVIEW="two",
          check=lambda w, o, log, *a: [] if log["review"]["fixed"] == ["review: first"] and any("02.json" in q and "0 times" in q for q in log["review"]["questions"])
          else [f"wrong split: {log['review']}"])
