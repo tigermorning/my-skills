@@ -49,12 +49,19 @@ if [ -s "$log" ]; then
   wrote_anything=1
 fi
 
+# Captures from sessions that ended off the default branch wait in the shared git dir
+# (see session-memory-end.sh) until a default-branch session end commits them.
+spool=""
+if common="$(git -C "$project_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
+  spool="$common/session-memory-spool"
+fi
+
 pending=()
-while IFS= read -r -d '' f; do pending+=("$f"); done < <(find "$inbox" -maxdepth 1 -name '*.md' -type f -print0 2>/dev/null | sort -z)
+while IFS= read -r -d '' f; do pending+=("$f"); done < <(find "$inbox" ${spool:+"$spool"} -maxdepth 1 -name '*.md' -type f -print0 2>/dev/null | sort -z)
 
 if [ "${#pending[@]}" -gt 0 ]; then
   {
-    echo "## 아직 정리되지 않은 최근 세션 기록 (.claude/memory/inbox/, ${#pending[@]}개)"
+    echo "## 아직 정리되지 않은 최근 세션 기록 (.claude/memory/inbox/, 기본 브랜치가 아닐 때 끝난 세션은 git 디렉터리의 session-memory-spool/, ${#pending[@]}개)"
     echo
     for f in "${pending[@]}"; do
       cat "$f"
