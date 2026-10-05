@@ -28,31 +28,44 @@ app.add(x)  # new helper
 """
 
 FAKE_CLAUDE = r'''
-import json, os, re, subprocess, sys
+import json, os, re, shutil, subprocess, sys
 prompt = sys.stdin.buffer.read().decode("utf-8")
-open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write("called\n")
-open(os.environ["FAKE_CLAUDE_LOG"] + ".prompt", "w", encoding="utf-8").write(prompt)
-body_path = re.search(r"BODY_PATH: (.+)", prompt).group(1).strip()
-open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write("BODY " + body_path + "\n")
+log = os.environ["FAKE_CLAUDE_LOG"]
+open(log, "a", encoding="utf-8").write("called\n")
+open(log + ".prompt", "w", encoding="utf-8").write(prompt)
+field = lambda name: re.search(name + r": (.+)", prompt).group(1).strip()
+body_path, fixes = field("BODY_PATH"), field("FIXES_DIR")
+shutil.copyfile(field("CHANGE_DIFF"), log + ".diff")
+shutil.copyfile(field("CHECKS_RUN"), log + ".checks")
+open(log, "a", encoding="utf-8").write("BODY " + body_path + "\n")
 mode = os.environ.get("FAKE_REVIEW", "clean")
-open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8").write(" ".join(sys.argv[1:]) + "\n")
+open(log, "a", encoding="utf-8").write(" ".join(sys.argv[1:]) + "\n")
 if mode == "autherror":
     print(json.dumps({"type": "result", "is_error": True, "result": "Failed to authenticate: OAuth session expired"}))
     sys.exit(1)
-def commit(path, text, msg):
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(text)
-    subprocess.run(["git", "add", path], check=True)
-    subprocess.run(["git", "commit", "-q", "-m", msg], check=True)
-questions, fixed = [], []
+def fix(name, subject, path, old, new):
+    edit = {"path": path, "old": old, "new": new}
+    open(os.path.join(fixes, name), "w", encoding="utf-8").write(json.dumps({"subject": subject, "edits": [edit]}))
+questions = []
 if mode == "fix":
-    commit("app.py", "# reason: keeps the helper small\n", "review: tidy helper"); fixed.append("review: tidy helper")
+    fix("01.json", "review: tidy helper", "app.py", "    return x + 1\n", "    return x + 1  # one past x\n")
+if mode == "two":
+    fix("01.json", "review: first", "app.py", "def add(x):", "def add(x):  # helper")
+    fix("02.json", "review: missing", "app.py", "no such text", "x")
 if mode == "break":
-    commit("FAIL", "x\n", "review: oops"); fixed.append("review: oops")
+    fix("01.json", "review: oops", "app.py", "    return x + 1\n", "    return x + 1  # BROKEN\n")
+if mode == "ambiguous":
+    fix("01.json", "review: which return", "app.py", "    return", "    return  # x")
 if mode == "outside":
-    commit("other.py", "x = 1\n", "review: touch other"); fixed.append("review: touch other")
+    fix("01.json", "review: touch check", "check.py", "import os", "import os  # x")
+if mode == "escape":
+    fix("01.json", "review: escape", "../outside.py", "x", "y")
+if mode == "dotclaude":
+    fix("01.json", "tidy skill", ".claude/skills/a/x.py", "x = 1", "x = 1  # one")
 if mode == "foreign":
-    commit("app.py", "# session log\n", "project-session-memory: capture session x")
+    with open("app.py", "a", encoding="utf-8") as f:
+        f.write("# session log\n")
+    subprocess.run(["git", "commit", "-qam", "project-session-memory: capture session x"], check=True)
 if mode == "dirty":
     open("app.py", "a", encoding="utf-8").write("# left behind\n")
 if mode == "question":
@@ -60,7 +73,7 @@ if mode == "question":
 body = os.environ.get("FAKE_BODY") or GOOD
 if mode != "nobody":
     open(body_path, "w", encoding="utf-8").write(body)
-answer = {"title": "Add helper", "questions": questions, "fixed": fixed}
+answer = {"title": "Add helper", "questions": questions}
 if mode == "nojson":
     print(json.dumps({"type": "result", "result": "done, no json line"}))
 elif mode == "denied":
@@ -69,7 +82,7 @@ elif mode == "denied":
         {"tool_name": "Bash", "tool_input": {"command": "ls -la"}}]}))
 else:
     print(json.dumps({"type": "result", "result": "done\n" + json.dumps(answer)}))
-'''.replace("GOOD", repr(GOOD_BODY), 1).replace("GOOD\n", repr(GOOD_BODY) + "\n")
+'''.replace("GOOD", repr(GOOD_BODY), 1)
 
 FAKE_GH = r'''
 import json, os, sys
@@ -95,7 +108,8 @@ def make_repo(d, cfg_over=None, branch_files=None):
     subprocess.run(["git", "clone", "-q", str(origin), str(work)], check=True, capture_output=True)
     git(work, "config", "user.email", "t@example.com")
     git(work, "config", "user.name", "t")
-    (work / "check.py").write_text("import os, sys\nsys.exit(1 if os.path.exists('FAIL') else 0)\n", encoding="utf-8")
+    (work / "check.py").write_text("import os, sys\nsys.exit(1 if os.path.exists('FAIL') or 'BROKEN' in open('app.py').read() else 0)\n",
+                                   encoding="utf-8")
     (work / "app.py").write_text("def app():\n    return 1\n", encoding="utf-8")
     cfg = {"base": "main", "checks": [f'"{PY}" check.py'], "auto_merge": False, "max_changed_lines": 400,
            "protected_paths": [".github/"], "ci_timeout_sec": 5, "review": {"enabled": True, "max_turns": 5, "timeout_sec": 60}}
@@ -147,7 +161,7 @@ if __name__ == "__main__":
                 problems.append(f"auto_merge_ok {log['auto_merge_ok']} != {want_ok}: {log['reasons']}")
             if log and reason and not any(reason in x for x in log["reasons"]):
                 problems.append(f"no reason containing {reason!r}: {log['reasons']}")
-            if check:
+            if check and (log is not None or want_code != 0):
                 problems += check(work, origin, log, err, calls, claude_called) or []
             if problems:
                 failed.append(f"{name}: " + " | ".join(problems))
@@ -170,7 +184,7 @@ if __name__ == "__main__":
 
     def reverted(work, origin, log, err, calls, claude_called):
         out = []
-        if (Path(work) / "FAIL").exists():
+        if "BROKEN" in (Path(work) / "app.py").read_text(encoding="utf-8"):
             out.append("breaking review commit still in the tree")
         if not any("reverted" in q for q in log["review"]["questions"]):
             out.append("no question about the revert")
@@ -183,10 +197,33 @@ if __name__ == "__main__":
     case("judge only, clean, CI pass", want_ok=True, check=judged_not_merged)
     case("auto-merge when everything holds", cfg={"auto_merge": True}, want_ok=True, check=merged)
     case("review question blocks", want_ok=False, reason="question", FAKE_REVIEW="question")
-    case("review fix commit is fine", want_ok=True, FAKE_REVIEW="fix",
-         check=lambda w, o, log, *a: [] if len(log["review"]["commits"]) == 1 else ["fix commit not recorded"])
+    def fix_committed(work, origin, log, err, calls, claude_called):
+        out = []
+        if len(log["review"]["commits"]) != 1 or log["review"]["fixed"] != ["review: tidy helper"]:
+            out.append(f"fix not committed once: {log['review']}")
+        if git(work, "log", "-1", "--format=%s") != "review: tidy helper":
+            out.append("last commit is not the review fix")
+        data = (Path(work) / "app.py").read_bytes()
+        if b"one past x" not in data:
+            out.append("fix text not in the file")
+        if b"\r\n" in data and data.count(b"\n") != data.count(b"\r\n"):
+            out.append("fix mixed LF into a CRLF file")
+        return out
+    case("the pipeline commits the agent's fix file", want_ok=True, FAKE_REVIEW="fix", check=fix_committed)
     case("review fix that breaks checks is reverted", want_ok=False, FAKE_REVIEW="break", check=reverted)
-    case("review touching other files becomes a question", want_ok=False, reason="question", FAKE_REVIEW="outside")
+    no_commits = lambda w, o, log, *a: [] if not log["review"]["commits"] else ["a fix was committed although it should be dropped"]
+    case("a fix to a file outside the change is dropped as a question", want_ok=False, reason="question", FAKE_REVIEW="outside",
+         check=lambda w, o, log, *a: no_commits(w, o, log) + ([] if any("not a file this change touches" in q for q in log["review"]["questions"]) else ["no question"]))
+    case("a fix whose old text appears twice is dropped", want_ok=False, reason="question", FAKE_REVIEW="ambiguous",
+         check=lambda w, o, log, *a: no_commits(w, o, log) + ([] if any("2 times" in q for q in log["review"]["questions"]) else ["no question"]))
+    case("a fix path leaving the repository is dropped",want_ok=False, reason="question", FAKE_REVIEW="escape", check=no_commits)
+    case("of two fixes the one that does not match is dropped, the other committed", want_ok=False, reason="question", FAKE_REVIEW="two",
+         check=lambda w, o, log, *a: [] if log["review"]["fixed"] == ["review: first"] and any("02.json" in q and "0 times" in q for q in log["review"]["questions"])
+         else [f"wrong split: {log['review']}"])
+    case("a fix under .claude/ is committed by the pipeline", want_ok=True, FAKE_REVIEW="dotclaude",
+         files={"app.py": "def app():\n    return 1\n\ndef add(x):\n    return x + 1\n", ".claude/skills/a/x.py": "x = 1\n"},
+         check=lambda w, o, log, *a: [] if log["review"]["fixed"] == ["review: tidy skill"] and "# one" in (Path(w) / ".claude/skills/a/x.py").read_text(encoding="utf-8")
+         else [f"fix under .claude/ not committed: {log['review']}"])
     case("review leaving a dirty tree stops", want_code=1, FAKE_REVIEW="dirty")
     case("a non-review commit during review becomes a question", want_ok=False, reason="question", FAKE_REVIEW="foreign",
          check=lambda w, o, log, *a: [] if any("not a review fix" in q for q in log["review"]["questions"]) else ["foreign commit not flagged"])
@@ -197,6 +234,32 @@ if __name__ == "__main__":
         args = (Path(work).parent / "claude.log").read_text(encoding="utf-8")
         return [] if "--setting-sources user" in args else ["review agent not limited to user settings (repo hooks would run)"]
     case("review agent runs with user settings only", want_ok=True, check=user_settings_only)
+
+    def no_shell(work, origin, log, err, calls, claude_called):
+        lines = (Path(work).parent / "claude.log").read_text(encoding="utf-8").splitlines()
+        args = next(l for l in lines if l.startswith("-p "))
+        body = next(l[5:] for l in lines if l.startswith("BODY "))
+        allowed = args.split("--allowedTools", 1)[1]
+        out = []
+        if "--permission-mode default" not in args:
+            out.append("not in default permission mode (acceptEdits lets the agent edit the repository)")
+        if "--disallowedTools Bash " not in args or "Bash" in allowed:
+            out.append(f"the agent can still use a shell: {args}")
+        scratch = Path(body).parent.as_posix()
+        if not any(t.startswith("Edit(//") and t.rstrip(")").endswith("/**") and scratch.split("/")[-1] in t for t in allowed.split()):
+            out.append(f"no write rule limited to the scratch directory: {allowed}")
+        return out
+    case("review agent has no shell and writes only to its scratch directory", want_ok=True, check=no_shell)
+
+    def given_diff_and_checks(work, origin, log, err, calls, claude_called):
+        d = Path(work).parent
+        out = []
+        if "def add(x)" not in (d / "claude.log.diff").read_text(encoding="utf-8"):
+            out.append("the change diff given to the agent lacks the change")
+        if "check.py" not in (d / "claude.log.checks").read_text(encoding="utf-8"):
+            out.append("the agent was not given what the checks printed")
+        return out
+    case("review agent gets the diff and the check output as files", want_ok=True, check=given_diff_and_checks)
     case("no body stops", want_code=1, FAKE_REVIEW="nobody")
 
     def stale_body(work):

@@ -7,9 +7,10 @@ Usage (inside the repository, on a clean tree):
 Stages:
   1. preflight   branch is not the base, tree is clean, branch is ahead of the base
   2. checks      every command in config "checks" must exit 0 (stops here otherwise)
-  3. review      `claude -p` reviews base...branch with the user-level and repo standards, commits sure
-                 fixes as "review: ...", leaves questions, and writes the PR body; checks run again and
-                 review commits that break them are reverted
+  3. review      `claude -p` reviews base...branch with the user-level and repo standards. It has no shell
+                 and cannot edit the repository: it writes sure fixes as fix files, questions, and the PR body.
+                 The pipeline commits each fix as "review: ...", runs the checks again and reverts review
+                 commits that break them
   4. body        the body must pass check_pr_body.py (pr-merge-danger) against the real diff
   5. publish     push the branch, create or update the PR, wait for CI   (skipped with --dry-run)
   6. verdict     auto-merge only if every condition holds; otherwise the PR stays open with the reasons.
@@ -42,9 +43,10 @@ DEFAULTS = {
     "review": {"enabled": True, "max_turns": 40, "model": None, "timeout_sec": 1800},
     "ci_timeout_sec": 900,
 }
-REVIEW_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-                "Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(python:*)", "Bash(node:*)"]
-REVIEW_DENY = ["Bash(git push:*)", "Bash(git reset:*)", "Bash(git rebase:*)", "Bash(git checkout:*)", "WebFetch", "WebSearch"]
+# The review agent reads and writes only fix files and the body into its scratch directory; the pipeline
+# applies the fixes and commits them. No shell: an allowed `python` or `node` could run `git push`.
+REVIEW_TOOLS = ["Read", "Grep", "Glob"]
+REVIEW_DENY = ["Bash", "WebFetch", "WebSearch", "NotebookEdit"]
 
 
 class StageError(Exception):
@@ -119,10 +121,25 @@ def preflight(repo, cfg, branch):
     return branch, base_ref
 
 
-def review_prompt(base_ref, branch, body_path, standards, repo_standards, checks=()):
+def scratch_rule(path):
+    """Claude Code permission rule for writing under `path` only. Write calls are judged by Edit rules, and an
+    absolute path is written with a leading // (C:/x becomes //c/x on Windows)."""
+    p = Path(path).resolve().as_posix()
+    if re.match(r"^[A-Za-z]:/", p):
+        p = "/" + p[0].lower() + p[2:]
+    return f"Edit(/{p}/**)"
+
+
+def review_prompt(base_ref, branch, scratch, body_path, standards, repo_standards, checks=()):
     std = "\n".join(f"- {p}" for p in [standards, repo_standards] if p) or "- (none; use the default list below)"
+    fixes = scratch / "fixes"
     return f"""You are the review pass of a PR pipeline. No human is watching; work alone and finish.
 Repository: the current directory. Branch: {branch}. Review the change {base_ref}...HEAD.
+CHANGE_DIFF: {scratch / "change.diff"}
+COMMITS: {scratch / "commits.txt"}
+CHECKS_RUN: {scratch / "checks.txt"}
+FIXES_DIR: {fixes}
+BODY_PATH: {body_path}
 
 Standards to enforce (the repository file wins over the user-level file):
 {std}
@@ -131,18 +148,25 @@ read source text instead of running, compare two implementations only, mocks tha
 that record history instead of reasons, dead code left behind, changes outside what the commits set out to do.
 
 Rules:
-1. Fix only what you are sure of, only in files this change already touches, without changing behaviour.
-   Commit each fix with `git commit -m "review: <what>"`. Never push, reset, rebase or switch branches.
-2. Anything you are not sure of becomes a question, not a fix.
-3. After you finish, the pipeline runs these checks and reverts your fixes if they fail: {', '.join(checks) or '(none)'}.
-   They can take minutes; if you run one yourself, give the Bash tool a long timeout.
-4. Write the PR body to BODY_PATH: {body_path}
+1. You have no shell and cannot edit the repository. Read the files, CHANGE_DIFF and COMMITS; write only
+   into FIXES_DIR and BODY_PATH.
+2. Fix only what you are sure of, only in files CHANGE_DIFF touches, without changing behaviour. Write each
+   fix as one JSON file in FIXES_DIR named 01.json, 02.json, ...:
+   {{"subject": "review: <what>", "edits": [{{"path": "<path from the repository root>",
+     "old": "<exact text that appears once in the file>", "new": "<replacement>"}}]}}
+   The pipeline applies each fix as one commit. A fix whose old text is not found exactly once, or that
+   touches another file, is dropped and becomes a question. Files under .claude/ are fine.
+3. Anything you are not sure of becomes a question, not a fix.
+4. After applying your fixes the pipeline runs these checks and reverts the fixes if they fail:
+   {', '.join(checks) or '(none)'}. What they printed before your review is in CHECKS_RUN.
+5. Write the PR body to BODY_PATH.
    Sections in order: "## Summary" (the smallest picture: pseudocode, call tree or file tree, plus a few lines),
-   "## Evidence" (commands that were run and what they printed — run them yourself), "## Merge Danger" with
-   "**Door:** one-way|two-way", "**Reason:** <why>" and "**Blast radius:** <one word>". Judge Door honestly:
-   data loss, migrations, outbound messages, publishing, secrets, public contracts are one-way.
-5. End your answer with one line of JSON and nothing after it:
-   {{"title": "<PR title>", "questions": ["..."], "fixed": ["<commit subject>"]}}
+   "## Evidence" (the commands in CHECKS_RUN and what they printed; you cannot run commands, so claim
+   nothing else as run), "## Merge Danger" with "**Door:** one-way|two-way", "**Reason:** <why>" and
+   "**Blast radius:** <one word>". Judge Door honestly: data loss, migrations, outbound messages,
+   publishing, secrets, public contracts are one-way.
+6. End your answer with one line of JSON and nothing after it:
+   {{"title": "<PR title>", "questions": ["..."]}}
 """
 
 
@@ -166,37 +190,90 @@ def denial_label(d):
     return str(d.get("tool_name"))
 
 
-def review(repo, cfg, branch, base_ref, body_path, mdanger):
+def apply_fixes(repo, fixes_dir, scope):
+    """Apply the agent's fix files in name order. Each becomes one commit or one question, never half of one."""
+    root = Path(repo).resolve()
+    commits, subjects, questions = [], [], []
+    for f in sorted(Path(fixes_dir).glob("*.json")):
+        try:
+            fix = json.loads(f.read_text(encoding="utf-8-sig"))
+            subject, edits = str(fix.get("subject") or "").strip(), fix.get("edits")
+            if not subject or not isinstance(edits, list) or not edits:
+                raise ValueError("needs a subject and at least one edit")
+            texts = {}
+            for e in edits:
+                rel = str(e["path"]).replace("\\", "/").removeprefix("./")
+                target = (root / rel).resolve()
+                if rel not in scope or root not in target.parents:
+                    raise ValueError(f"{rel} is not a file this change touches")
+                text = texts[rel] if rel in texts else target.read_bytes().decode("utf-8")
+                old, new = str(e["old"]), str(e["new"])
+                if old == new:
+                    raise ValueError(f"an edit in {rel} changes nothing")
+                if "\r\n" in text and "\r\n" not in old:
+                    old, new = old.replace("\n", "\r\n"), new.replace("\n", "\r\n")
+                n = text.count(old) if old else 0
+                if n != 1:
+                    raise ValueError(f"old text appears {n} times in {rel}; it must appear exactly once")
+                texts[rel] = text.replace(old, new, 1)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, UnicodeDecodeError, json.JSONDecodeError) as err:
+            questions.append(f"fix {f.name} was not applied: {err}")
+            continue
+        for rel, text in texts.items():
+            (root / rel).write_bytes(text.encode("utf-8"))
+        subject = subject if subject.startswith("review:") else f"review: {subject}"
+        git(repo, "add", "--", *texts)
+        r = sh(["git", "commit", "-q", "-m", subject], repo, check=False)
+        if r.returncode:
+            git(repo, "restore", "--staged", "--worktree", "--", *texts)
+            questions.append(f"fix {f.name} was not committed: {(r.stderr or r.stdout).strip()[:200]}")
+            continue
+        commits.append(git(repo, "rev-parse", "HEAD"))
+        subjects.append(subject)
+    return commits, subjects, questions
+
+
+def review(repo, cfg, branch, base_ref, body_path, mdanger, checks_run=()):
     std = mdanger.find_user_standards()
     repo_std = Path(repo) / "CODING_STANDARDS.md"
-    # The agent may not write under .git (Claude Code guards it), so it writes the body to a scratch
-    # directory it is given, and the pipeline copies it into the state directory.
-    scratch = Path(tempfile.mkdtemp(prefix="pr-pipeline-"))
+    scratch = Path(tempfile.mkdtemp(prefix="pr-pipeline-")).resolve()
+    try:
+        return _review(repo, cfg, branch, base_ref, body_path, std, repo_std, scratch, checks_run)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _review(repo, cfg, branch, base_ref, body_path, std, repo_std, scratch, checks_run):
+    (scratch / "fixes").mkdir()
+    (scratch / "change.diff").write_text(git(repo, "diff", f"{base_ref}...HEAD"), encoding="utf-8")
+    (scratch / "commits.txt").write_text(git(repo, "log", "--format=%h %s%n%n%b", f"{base_ref}..HEAD"), encoding="utf-8")
+    (scratch / "checks.txt").write_text("\n\n".join(f"$ {c['cmd']}\nexit {c['code']}\n" + "\n".join(c["tail"])
+                                                   for c in checks_run) or "(no checks configured)", encoding="utf-8")
     draft = scratch / body_path.name
     # With the env the pipeline uses: the same command without it can fail for a local reason (check_skills
     # compares installed copies unless CI is set), and the agent then reports a failure that is not there.
     env = " ".join(f"{k}={v}" for k, v in (cfg.get("check_env") or {}).items())
     checks = [f"{env} {c}" if env else c for c in cfg["checks"]]
-    prompt = review_prompt(base_ref, branch, draft, str(std) if std else None, str(repo_std) if repo_std.is_file() else None,
-                           checks)
+    prompt = review_prompt(base_ref, branch, scratch, draft, str(std) if std else None,
+                           str(repo_std) if repo_std.is_file() else None, checks)
     # User settings only: the user's guard hooks still apply, but a repository's own hooks (a session
     # logger that commits on SessionEnd, for one) must not add commits to the branch under review.
+    # Default permission mode: in -p anything not allowed below is refused, so the agent can read but only
+    # write inside the scratch directory, and has no shell to reach git or the network through.
     args = [*cmd_from_env("PR_PIPELINE_CLAUDE", "claude"), "-p", "--output-format", "json", "--setting-sources", "user",
-            "--permission-mode", "acceptEdits", "--max-turns", str(cfg["review"]["max_turns"]), "--add-dir", str(scratch)]
+            "--permission-mode", "default", "--max-turns", str(cfg["review"]["max_turns"]), "--add-dir", str(scratch)]
     if std:
         args += ["--add-dir", str(Path(std).parent)]
     if cfg["review"].get("model"):
         args += ["--model", cfg["review"]["model"]]
-    args += ["--disallowedTools", *REVIEW_DENY, "--allowedTools", *REVIEW_TOOLS]
+    args += ["--disallowedTools", *REVIEW_DENY, "--allowedTools", *REVIEW_TOOLS, scratch_rule(scratch)]
     before = git(repo, "rev-parse", "HEAD")
     try:
         r = sh(args, repo, check=False, input_text=prompt, timeout=cfg["review"]["timeout_sec"])
     except subprocess.TimeoutExpired:
         raise StageError("review", f"review agent ran past {cfg['review']['timeout_sec']}s")
-    finally:
-        if draft.is_file():
-            shutil.copyfile(draft, body_path)
-        shutil.rmtree(scratch, ignore_errors=True)
+    if draft.is_file():
+        shutil.copyfile(draft, body_path)
     try:
         outer = json.loads(r.stdout)
     except json.JSONDecodeError:
@@ -210,17 +287,18 @@ def review(repo, cfg, branch, base_ref, body_path, mdanger):
     text = outer.get("result", "") if isinstance(outer, dict) else r.stdout
     answer = last_json(text) or {}
     if git(repo, "status", "--porcelain"):
-        raise StageError("review", "review agent left uncommitted changes; look at the tree before rerunning")
-    commits = git(repo, "rev-list", "--reverse", f"{before}..HEAD").split()
+        raise StageError("review", "the tree changed during review; look at it before rerunning")
+    # Commits made while the agent ran are not its own (it has no git); run() turns them into questions.
+    foreign = git(repo, "rev-list", "--reverse", f"{before}..HEAD").split()
     questions = list(answer.get("questions") or [])
-    # Claude Code refuses edits under protected folders such as .claude/ even with an allow rule, so a
-    # fix the agent wanted can vanish; name what it could not touch instead of passing quietly.
     denials = outer.get("permission_denials") if isinstance(outer, dict) else None
     denied = sorted({denial_label(d) for d in denials or [] if isinstance(d, dict)})
     if denied:
         questions.append("the review agent was refused permission for: " + ", ".join(denied))
-    return {"title": answer.get("title"), "questions": questions,
-            "fixed": list(answer.get("fixed") or []), "commits": commits, "answer_found": bool(answer)}
+    scope = set(changed_paths_and_lines(repo, base_ref)[0])
+    commits, fixed, not_applied = apply_fixes(repo, scratch / "fixes", scope)
+    return {"title": answer.get("title"), "questions": questions + not_applied, "fixed": fixed,
+            "commits": foreign + commits, "answer_found": bool(answer)}
 
 
 def changed_paths_and_lines(repo, base_ref):
@@ -324,7 +402,7 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
         scope = set(changed_paths_and_lines(repo, base_ref)[0])
         # A body left by an earlier run must not pass for one this review did not write.
         body_path.unlink(missing_ok=True)
-        rev = review(repo, cfg, branch, base_ref, body_path, mdanger)
+        rev = review(repo, cfg, branch, base_ref, body_path, mdanger, checks)
         for c in rev["commits"]:
             subject = git(repo, "log", "-1", "--format=%s", c)
             if not subject.startswith("review:"):
