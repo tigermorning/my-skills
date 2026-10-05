@@ -117,3 +117,30 @@ inbox를 정리할 때 이 파일 아래에 날짜와 함께 핵심만 append하
   느낀 "혼재"는 이 패턴이 여러 레포에 걸쳐 보이면서 생긴 인상으로 추정됨.
   korean-subtitle-corrector, who-ate-my-cheesecake, blog는 아직 미확인
   (사용자가 원하면 이어서 조사).
+
+## 2026-08-31
+
+- `korean-subtitle-corrector`는 실제 작업이 `master`에 있고 `main`은 빈 브랜치였음.
+  기본 브랜치를 `master`로 바꾸고 `main`을 지우는 일은 GitHub 화면에서 사용자가
+  직접 하도록 안내함(그 세션은 그 저장소 권한이 없었음). 처리됐는지는 미확인.
+
+## 2026-10-05: 세션 메모리 훅이 기능 브랜치에 커밋하지 않게 함
+
+- 사고: SessionEnd 훅이 메인 체크아웃의 `feat/pr-pipeline`(공개 PR #28 진행 중)에
+  캡처 커밋을 얹음. 손으로 로컬 브랜치 `session-memory/inbox-1005`로 떼어 냄.
+- 수정(PR #29, 머지): 커밋은 기본 브랜치에서만.
+  - 기본 브랜치 = `origin/HEAD` → `init.defaultBranch` → `main`/`master`.
+  - 기능 브랜치·detached HEAD면 `<git-common-dir>/session-memory-spool/`에만 씀.
+    작업 트리 밖(`git add -A`에 안 섞임), worktree 공유(worktree 지워도 남음).
+  - 다음 기본 브랜치 세션 끝에 spool을 inbox로 옮겨 커밋. SessionStart도 spool을 읽음.
+  - 대가: 기능 브랜치에서만 끝난 세션의 캡처는 기본 브랜치 세션이 올 때까지 그 PC에만
+    있음. 다른 PC로 넘기려면 이 파일에 직접 요약해 master로 push할 것.
+- `feat/pr-pipeline`에 master를 합쳐 push, 이후 PR #28도 머지됨(`fa098c1`).
+- `inbox-1005`의 두 캡처는 master로 cherry-pick 후 revert함(한 건은 다른 프로젝트
+  기록, 한 건은 낡은 상태 메모). 공개 기록엔 남고 최신 트리엔 없음. 브랜치는 지움.
+- 설치본(`~/.claude/skills`) 주의: 머지 안 된 기능 브랜치 판이 설치돼 있을 수 있음.
+  `installed_skills.py --sync`를 통째로 돌리기 전에 설치본이 어느 브랜치 판인지 볼 것.
+  10-05 기준 설치본 = master 판(`installed_skills.py` 0 problem).
+- GitHub Actions가 다시 켜져 PR마다 `check` 작업이 돔(PR #28에서 확인).
+- 메인 체크아웃의 `.claude/`는 worktree 세션에서 직접 못 고침(PreToolUse 훅이 막음).
+  worktree에서 `origin/master` 기준 브랜치를 만들어 고친 뒤 `HEAD:master`로 push함.
