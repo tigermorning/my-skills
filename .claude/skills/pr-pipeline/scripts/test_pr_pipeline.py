@@ -31,6 +31,22 @@ FAKE_CLAUDE = r'''
 import json, os, re, shutil, subprocess, sys
 prompt = sys.stdin.buffer.read().decode("utf-8")
 log = os.environ["FAKE_CLAUDE_LOG"]
+if "DOOR_JUDGE" in prompt:
+    open(log, "a", encoding="utf-8").write("DOOR " + " ".join(sys.argv[1:]) + "\n")
+    door = os.environ.get("FAKE_DOOR", "two-way")
+    if door == "split":
+        try:
+            os.close(os.open(log + ".door-yes", os.O_CREAT | os.O_EXCL))
+            door = "one-way"
+        except FileExistsError:
+            door = "two-way"
+    if door == "garbage":
+        print(json.dumps({"type": "result", "result": "no idea"}))
+        sys.exit(0)
+    items = ["data_loss", "migration", "outbound", "publishing", "secrets", "public_contract", "external_state"]
+    checks = {k: {"yes": door == "one-way" and k == "outbound", "why": "posts a comment" if k == "outbound" else "no"} for k in items}
+    print(json.dumps({"type": "result", "result": "ok\n" + json.dumps({"checks": checks, "blast_radius": "localized"})}))
+    sys.exit(0)
 open(log, "a", encoding="utf-8").write("called\n")
 open(log + ".prompt", "w", encoding="utf-8").write(prompt)
 field = lambda name: re.search(name + r": (.+)", prompt).group(1).strip()
@@ -288,8 +304,28 @@ if __name__ == "__main__":
         return [] if "CI=1 " in prompt else ["the review prompt lists the checks without the env the pipeline runs them with"]
     case("review prompt names the checks with their env", cfg={"check_env": {"CI": "1"}}, want_ok=True, check=checks_with_env)
     case("no JSON line becomes a question", want_ok=False, reason="question", FAKE_REVIEW="nojson")
-    case("one-way door needs a person", want_ok=False, reason="door is one-way",
-         FAKE_BODY=GOOD_BODY.replace("**Door:** two-way", "**Door:** one-way"))
+    case("one-way door needs a person", want_ok=False, reason="door is one-way", FAKE_DOOR="one-way")
+
+    def judged_three_times_no_shell(work, origin, log, err, calls, claude_called):
+        doors = [l for l in (Path(work).parent / "claude.log").read_text(encoding="utf-8").splitlines() if l.startswith("DOOR ")]
+        out = [] if len(doors) == 3 else [f"door judged {len(doors)} times, want 3"]
+        if any("--disallowedTools Bash " not in l or "--permission-mode default" not in l for l in doors):
+            out.append("a door judge can use a shell")
+        if log["door"]["door"] != "two-way" or log["body"]["door"] != "two-way":
+            out.append(f"all-no judges should give two-way: {log['door']}")
+        return out
+    case("door is judged three times by judges without a shell", want_ok=True, check=judged_three_times_no_shell)
+    case("one judge of three saying yes makes the door one-way", want_ok=False, reason="door is one-way", FAKE_DOOR="split",
+         check=lambda w, o, log, *a: [] if log["door"]["votes"]["outbound"] == 1 and "1/3" in log["door"]["reason"] else [f"votes not kept: {log['door']}"])
+    case("judges with no usable answer make the door one-way", want_ok=False, reason="door is one-way", FAKE_DOOR="garbage",
+         check=lambda w, o, log, *a: [] if log["door"]["missing"] == 3 else [f"missing answers not counted: {log['door']}"])
+
+    def body_door_replaced(work, origin, log, err, calls, claude_called):
+        body = (Path(git(work, "rev-parse", "--absolute-git-dir")) / "pr-pipeline" / "feat_x.md").read_text(encoding="utf-8")
+        out = [] if body.count("## Merge Danger") == 1 and "**Door:** one-way" in body else [f"body Merge Danger not replaced: {body[-300:]}"]
+        return out + ([] if log["body"]["door"] == "one-way" else ["body check did not read the judged door"])
+    case("the agent's own Door in the body is replaced by the judged one", want_ok=False, reason="door is one-way",
+         FAKE_DOOR="one-way", check=body_door_replaced)
     case("failing checks stop before review", files={"FAIL": "x\n"}, want_code=1, check=no_review_call)
     case("protected path needs a person", files={".github/workflows/ci.yml": "on: push\n"}, want_ok=False, reason="protected")
     case("too many lines needs a person", cfg={"max_changed_lines": 1}, want_ok=False, reason="changed lines")

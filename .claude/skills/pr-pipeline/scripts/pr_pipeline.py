@@ -11,6 +11,8 @@ Stages:
                  and cannot edit the repository: it writes sure fixes as fix files, questions, and the PR body.
                  The pipeline commits each fix as "review: ...", runs the checks again and reverts review
                  commits that break them
+     door        separate `claude -p` judges answer a fixed one-way checklist (door_runs times, default 3);
+                 any yes makes the door one-way, and the pipeline writes the body's Merge Danger from it
   4. body        the body must pass check_pr_body.py (pr-merge-danger) against the real diff
   5. publish     push the branch, create or update the PR, wait for CI   (skipped with --dry-run)
   6. verdict     auto-merge only if every condition holds; otherwise the PR stays open with the reasons.
@@ -30,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -40,7 +43,7 @@ DEFAULTS = {
     "max_changed_lines": 400,
     "protected_paths": [".github/"],
     "after_merge": [],
-    "review": {"enabled": True, "max_turns": 40, "model": None, "timeout_sec": 1800},
+    "review": {"enabled": True, "max_turns": 40, "model": None, "timeout_sec": 1800, "door_runs": 3, "door_max_turns": 15},
     "ci_timeout_sec": 900,
 }
 # The review agent reads and writes only fix files and the body into its scratch directory; the pipeline
@@ -162,9 +165,8 @@ Rules:
 5. Write the PR body to BODY_PATH.
    Sections in order: "## Summary" (the smallest picture: pseudocode, call tree or file tree, plus a few lines),
    "## Evidence" (the commands in CHECKS_RUN and what they printed; you cannot run commands, so claim
-   nothing else as run), "## Merge Danger" with "**Door:** one-way|two-way", "**Reason:** <why>" and
-   "**Blast radius:** <one word>". Judge Door honestly: data loss, migrations, outbound messages,
-   publishing, secrets, public contracts are one-way.
+   nothing else as run). Do not write "## Merge Danger": separate judges decide the door and the
+   pipeline adds that section.
 6. End your answer with one line of JSON and nothing after it:
    {{"title": "<PR title>", "questions": ["..."]}}
 """
@@ -301,6 +303,101 @@ def _review(repo, cfg, branch, base_ref, body_path, std, repo_std, scratch, chec
             "commits": foreign + commits, "answer_found": bool(answer)}
 
 
+DOOR_CHECKS = {
+    "data_loss": "When the merged code runs, it can delete or overwrite data or files people keep (not its own temp or build output).",
+    "migration": "It changes a stored data format or schema in a way an old version cannot read back.",
+    "outbound": "When the merged code runs, it sends something to other people or services: messages, emails, PR or issue comments, webhooks.",
+    "publishing": "When the merged code runs, it pushes, deploys, releases or uploads something others can see.",
+    "secrets": "It adds, moves or exposes credentials, tokens or keys.",
+    "public_contract": "It removes, renames or changes the meaning of something others already rely on: CLI flags, file formats, "
+                       "APIs, config keys. Adding a new optional one is not this.",
+    "external_state": "When the merged code runs, it changes state outside this repository that a revert would not undo "
+                      "(settings, accounts, remote branches, money).",
+}
+
+
+def door_prompt(diff_path, signals):
+    items = "\n".join(f'- "{k}": {v}' for k, v in DOOR_CHECKS.items())
+    hint = ", ".join(signals) or "(none)"
+    shape = ", ".join(f'"{k}": {{"yes": false, "why": "..."}}' for k in DOOR_CHECKS)
+    return f"""DOOR_JUDGE. You judge one thing about a change: whether merging it is a one-way door.
+Read the diff at CHANGE_DIFF: {diff_path} and any repository file you need. You cannot run commands.
+
+Judge what the merged code does when it runs, not the act of merging this change into this repository:
+merging into a public repository is not by itself publishing, and a revert undoes a merge.
+Answer every item yes or no, with a one-sentence reason quoting the code that decides it. Yes only when the
+diff itself adds or changes the behaviour; a tool that already did it before this change is a no.
+{items}
+
+An automatic text scan of the diff flagged: {hint}. The scan matches words, so check each against the code.
+
+Also give "blast_radius": one word for how far a mistake would reach (localized, module, users, data).
+End with one line of JSON and nothing after it:
+{{"checks": {{{shape}}}, "blast_radius": "<word>"}}
+"""
+
+
+def judge_door(repo, cfg, diff, signals):
+    """Ask DOOR_CHECKS several times in parallel; any yes in any run makes the door one-way.
+    A single holistic answer flipped between runs on the same diff; per-item answers with a conservative
+    combine make the result stable, and the votes show where the judges disagreed."""
+    runs = max(1, int(cfg["review"].get("door_runs", 3)))
+    scratch = Path(tempfile.mkdtemp(prefix="pr-pipeline-door-")).resolve()
+    try:
+        diff_path = scratch / "change.diff"
+        diff_path.write_text(diff, encoding="utf-8")
+        prompt = door_prompt(diff_path, signals)
+        args = [*cmd_from_env("PR_PIPELINE_CLAUDE", "claude"), "-p", "--output-format", "json", "--setting-sources", "user",
+                "--permission-mode", "default", "--max-turns", str(cfg["review"].get("door_max_turns", 15)),
+                "--add-dir", str(scratch)]
+        if cfg["review"].get("model"):
+            args += ["--model", cfg["review"]["model"]]
+        args += ["--disallowedTools", *REVIEW_DENY, "--allowedTools", *REVIEW_TOOLS]
+        with ThreadPoolExecutor(max_workers=runs) as pool:
+            outs = list(pool.map(lambda _: sh(args, repo, check=False, input_text=prompt,
+                                              timeout=cfg["review"]["timeout_sec"]), range(runs)))
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    answers = []
+    for r in outs:
+        try:
+            outer = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            outer = {}
+        if isinstance(outer, dict) and outer.get("is_error"):
+            raise StageError("door", f"door judge failed: {str(outer.get('result'))[:300]}")
+        ans = last_json(str(outer.get("result", "")) if isinstance(outer, dict) else "") or {}
+        answers.append(ans if isinstance(ans.get("checks"), dict) else None)
+    good = [a for a in answers if a]
+    votes, why = {}, {}
+    for k in DOOR_CHECKS:
+        yes = [a["checks"].get(k) or {} for a in good if (a["checks"].get(k) or {}).get("yes") is True]
+        votes[k] = len(yes)
+        if yes:
+            why[k] = str(yes[0].get("why") or "")[:200]
+    missing = len(answers) - len(good)
+    radii = [str(a.get("blast_radius") or "").strip().split()[0] for a in good if str(a.get("blast_radius") or "").strip()]
+    radius = max(set(radii), key=radii.count) if radii else "unknown"
+    one_way = missing > 0 or any(votes.values())
+    if any(votes.values()):
+        reason = "; ".join(f"{k} ({votes[k]}/{len(good)} judges): {why[k]}" for k in DOOR_CHECKS if votes[k])
+    else:
+        reason = f"none of {', '.join(DOOR_CHECKS)} holds ({len(good)}/{len(answers)} judges agree)"
+    if missing:
+        reason += f"; {missing} of {len(answers)} judges gave no usable answer, so one-way to be safe"
+    return {"door": "one-way" if one_way else "two-way", "reason": reason, "radius": radius,
+            "votes": votes, "runs": len(answers), "missing": missing}
+
+
+def write_merge_danger(body_path, door):
+    """Replace whatever Merge Danger the body has with the judged one."""
+    body = body_path.read_text(encoding="utf-8-sig") if body_path.is_file() else ""
+    body = re.split(r"(?mi)^##\s*merge danger\b", body)[0].rstrip()
+    body += (f"\n\n## Merge Danger\n**Door:** {door['door']}\n**Reason:** {door['reason']}\n"
+             f"**Blast radius:** {door['radius']}\n")
+    body_path.write_text(body, encoding="utf-8")
+
+
 def changed_paths_and_lines(repo, base_ref):
     paths, lines = [], 0
     for row in git(repo, "diff", "--numstat", f"{base_ref}...HEAD").splitlines():
@@ -427,6 +524,10 @@ def run(repo, cfg, branch=None, dry_run=False, no_review=False, title=None):
     std = mdanger.find_user_standards()
     rules = mdanger.load_user_signals(std) if std else []
     repo_name = Path(git(repo, "rev-parse", "--show-toplevel")).name
+    if cfg["review"]["enabled"] and not no_review:
+        door = judge_door(repo, cfg, diff, mdanger.scan_signals(diff, rules, repo_name)[0])
+        write_merge_danger(body_path, door)
+        log["door"] = door
     body = body_path.read_text(encoding="utf-8-sig")
     report = mdanger.check(body, diff, rules, repo_name)
     _, user_hits = mdanger.scan_signals(diff, rules, repo_name)

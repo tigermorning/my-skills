@@ -25,8 +25,8 @@ description: Run a finished feature branch through the whole PR pipeline so a pe
 ## 흐름
 
 ```
-preflight ─▶ checks ─▶ review(claude -p) ─▶ checks again ─▶ body check ─▶ push·PR·CI ─▶ verdict
-  깨끗한가     실패면 멈춤   수정안·질문·본문→커밋   깨지면 리뷰 커밋 revert   pr-merge-danger      (--dry-run 은 생략)   자동 머지 / 사람에게
+preflight ─▶ checks ─▶ review(claude -p) ─▶ checks again ─▶ door(판정 3명) ─▶ body check ─▶ push·PR·CI ─▶ verdict
+  깨끗한가     실패면 멈춤   수정안·질문·본문→커밋   깨지면 리뷰 커밋 revert   하나라도 예면 one-way   pr-merge-danger      (--dry-run 은 생략)   자동 머지 / 사람에게
 ```
 
 | 단계 | 하는 일 | 멈추는 때 |
@@ -35,9 +35,26 @@ preflight ─▶ checks ─▶ review(claude -p) ─▶ checks again ─▶ body
 | checks | 설정의 `checks` 명령을 차례로(환경변수는 `check_env`) | 실패면 종료 코드 1, 리뷰는 안 돎 |
 | review | 사람 없이 리뷰 에이전트. 셸이 없고 저장소를 못 고친다 — 파이프라인이 준 diff·커밋 목록·검사 출력을 읽고, 임시 폴더에 수정안 파일(아래)·PR 본문을 쓰고, 나머지는 질문. 파이프라인이 수정안을 하나씩 적용해 `review:` 커밋 | 리뷰 중 트리가 바뀌면 종료 코드 1 |
 | checks again | 리뷰 커밋 뒤 다시 | 깨지면 리뷰 커밋을 `git revert` 하고 질문으로 남김 |
+| door | 리뷰와 따로 `claude -p` 판정 `door_runs`명(기본 3, 동시에). 고정 체크리스트(아래) 항목마다 예/아니오와 근거. 한 명이라도 한 항목에 예, 또는 쓸 만한 답이 없으면 one-way. 파이프라인이 본문의 Merge Danger 절을 이 결과로 쓴다(리뷰어는 안 씀) | — |
 | body | `check_pr_body.py`: 세 절, Door, 실제 diff 의 one-way 신호, 사용자 공통 위험 목록 | 본문이 없으면 종료 코드 1 |
 | publish | push, PR 만들기 또는 본문 갱신, CI 기다림 | — |
 | verdict | 아래 조건 | — |
+
+### Door 체크리스트 (판정이 항목마다 답한다)
+
+| 항목 | 예가 되는 때 (머지된 코드가 실행될 때) |
+|---|---|
+| data_loss | 사람이 가진 데이터·파일을 지우거나 덮어씀(자기 임시·빌드 파일 제외) |
+| migration | 저장 형식·스키마를 옛 버전이 못 읽게 바꿈 |
+| outbound | 다른 사람·서비스에 무언가 보냄: 메시지, 메일, PR·이슈 댓글, 웹훅 |
+| publishing | push, 배포, 릴리스, 업로드처럼 남이 볼 수 있게 내보냄 |
+| secrets | 자격 증명·토큰·키를 더하거나 옮기거나 드러냄 |
+| public_contract | 남이 이미 쓰는 CLI 옵션·파일 형식·API·설정 키를 없애거나 이름·뜻을 바꿈(새 선택 항목 추가는 아님) |
+| external_state | revert 로 안 되돌아가는 저장소 밖 상태를 바꿈(설정, 계정, 원격 브랜치, 돈) |
+
+- 이 PR 을 머지하는 행위 자체는 판단하지 않는다. 공개 저장소에 머지한다고 게시가 되지는 않는다.
+- 이 변경 전부터 하던 일이면 아니오. diff 가 그 동작을 새로 넣거나 바꿀 때만 예.
+- 글자 검사(`publish or push` 등) 결과를 힌트로 준다. 판정이 코드로 확인한다.
 
 ### 수정안 파일 (리뷰어 → 파이프라인)
 
@@ -84,7 +101,7 @@ python ~/.claude/skills/pr-pipeline/scripts/pr_pipeline.py run
 - 기록: `.git/pr-pipeline/<브랜치>.json` (저장소 밖이라 커밋되지 않음).
 - 끝나면 사용자에게 판정 한 줄 + 이유 + PR 링크를 알린다. 사람이 볼 것만 골라 보낸다.
 
-셀프 테스트: `python scripts/test_pr_pipeline.py` — 가짜 원격 저장소·가짜 `claude`·가짜 `gh` 로 판정 경로 31가지와 직접 확인 3가지.
+셀프 테스트: `python scripts/test_pr_pipeline.py` — 가짜 원격 저장소·가짜 `claude`·가짜 `gh` 로 판정 경로 35가지와 직접 확인 3가지.
 
 ## 실제로 돌려 보고 막은 것
 
@@ -92,6 +109,7 @@ python ~/.claude/skills/pr-pipeline/scripts/pr_pipeline.py run
 - **CLI 로그인 만료**: `claude -p` 가 1턴·토큰 0으로 끝났다. `is_error` 의 원문을 그대로 보여 주고, 로그인 문제면 `claude` → `/login` 을 안내한다.
 - **리뷰 에이전트가 `.git` 아래에 못 쓴다**: 본문 경로가 `.git/pr-pipeline/` 이라 Claude Code 가 쓰기를 막았고, 파이프라인은 지난 실행의 본문으로 조용히 통과했다. 에이전트는 임시 폴더(`--add-dir`)에 쓰고 파이프라인이 옮긴다. 리뷰 전에 옛 본문을 지워, 이번 리뷰가 안 쓴 본문은 통과하지 못한다.
 - **리뷰어에게 셸이 있었다**: `Bash(python:*)`·`Bash(node:*)` 를 허용해 두어 파이썬으로 `git push` 를 부를 수 있었다(리뷰어가 스스로 질문으로 남김). 지금은 Bash·웹을 모두 막고 Read·Grep·Glob 과 임시 폴더 한정 쓰기만 준다. 쓰기 규칙은 `Edit(//c/<경로>/**)` 형식이어야 먹었다(`Write(...)`·`//C:/`·`/C:/` 는 거부 — 실험). 모드는 `default`: `-p` 에서 허용 밖은 전부 거부된다.
+- **Door 가 실행마다 바뀌었다**: 같은 PR #28 을 리뷰어가 one-way("공개 저장소라 머지가 곧 게시") 두 번, two-way 두 번으로 적었다. 같은 diff 에 옛 방식(한 번에 판단)만 따로 6번 물으면 6/6 two-way — 이 코드가 실제로 push·PR 댓글을 하는데도 놓쳤다. 지금은 판정을 떼어 내고 "머지 행위가 아니라 머지된 코드가 실행될 때 하는 일"을 항목별로 묻는다. 측정: PR #28 diff 3명×2묶음 모두 one-way, 표 `outbound 3/3·publishing 3/3·external_state 3/3` 동일. 문서만 바꾼 diff 는 두 묶음 모두 two-way, 표 0.
 - **수정안 경로 실제 시연**: `.claude/skills/` 파일에 이력 주석 한 줄을 넣은 브랜치로 dry-run — 리뷰어가 수정안 파일을 쓰고 파이프라인이 `review: remove history comment above last_json` 으로 커밋, 검사 다시 통과. 권한 거부 0건.
 - **비공개 함수 호출**: 리뷰 에이전트가 `check_pr_body._scan` 직접 호출을 질문으로 남겼다. 공개 함수 `scan_signals` 로 바꿨다.
 - **`.claude/` 아래는 리뷰어가 못 고친다**: Claude Code 가 보호 폴더 편집을 거부하고, `--allowedTools "Edit(.claude/**)"` 로도 풀리지 않았다(작은 저장소로 실험). 그래서 리뷰어는 수정안 파일만 쓰고 파이프라인이 적용·커밋한다 — `.claude/` 아래도 고쳐진다. 거부된 도구 호출(`permission_denials`)은 파일 이름·명령과 함께 질문이 된다.
