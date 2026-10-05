@@ -32,7 +32,8 @@ import json, os, re, shutil, subprocess, sys
 prompt = sys.stdin.buffer.read().decode("utf-8")
 log = os.environ["FAKE_CLAUDE_LOG"]
 if "DOOR_JUDGE" in prompt:
-    open(log, "a", encoding="utf-8").write("DOOR " + " ".join(sys.argv[1:]) + "\n")
+    # Judges run in parallel; appends to one file from several processes can lose lines on Windows.
+    open(f"{log}.door-{os.getpid()}", "w", encoding="utf-8").write(" ".join(sys.argv[1:]))
     door = os.environ.get("FAKE_DOOR", "two-way")
     if door == "split":
         try:
@@ -307,7 +308,7 @@ if __name__ == "__main__":
     case("one-way door needs a person", want_ok=False, reason="door is one-way", FAKE_DOOR="one-way")
 
     def judged_three_times_no_shell(work, origin, log, err, calls, claude_called):
-        doors = [l for l in (Path(work).parent / "claude.log").read_text(encoding="utf-8").splitlines() if l.startswith("DOOR ")]
+        doors = [p.read_text(encoding="utf-8") + " " for p in Path(work).parent.glob("claude.log.door-*") if p.name != "claude.log.door-yes"]
         out = [] if len(doors) == 3 else [f"door judged {len(doors)} times, want 3"]
         if any("--disallowedTools Bash " not in l or "--permission-mode default" not in l for l in doors):
             out.append("a door judge can use a shell")
