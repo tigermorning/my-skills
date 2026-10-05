@@ -25,7 +25,18 @@ description: Enforce coding standards in a separate review pass, not in the impl
 
 해당 없음: 한 줄 수정, 설정값 변경, 문서 오타. 리뷰 패스 비용이 더 크다.
 
-## 준비 (저장소당 한 번)
+## 규칙은 두 층
+
+| 층 | 파일 | 무엇 | 언제 만드나 |
+|---|---|---|---|
+| 사용자 공통 | `$REVIEW_STANDARDS` → `~/.claude/REVIEW_STANDARDS.md` → `~/.claude/references/review-standards.md` (먼저 찾은 것) | 어느 프로젝트에서나 반복되는 판단 규칙, 나에게 위험한 변경(one-way) 목록 | 한 번. 회고에서 여러 프로젝트에 같은 지적이 나오면 더함 |
+| 프로젝트 | 저장소 루트 `CODING_STANDARDS.md` | 그 저장소에서만 통하는 기준 | 미리 만들지 않음. 그 저장소에서 같은 지적이 두 번 나오면 |
+
+- 리뷰어는 둘 다 읽는다. 서로 다르면 **프로젝트 규칙이 이긴다**.
+- 프로젝트마다 다 따로 만들 필요는 없다. 공통 파일 하나로 시작하고, 프로젝트 파일은 [[review-retro]]가 필요할 때만 늘린다.
+- 프로젝트 전용 스킬이 이미 규칙을 담고 있으면(예: 블로그 글쓰기 스킬) 그것이 프로젝트 층이다.
+
+## 준비 (저장소당 한 번 — 필요해졌을 때)
 
 1. 저장소 루트에 `CODING_STANDARDS.md`를 둔다.
    - 판단이 필요한 규칙만 적는다. 예: "테스트는 공개 인터페이스에서", "모듈은 깊게".
@@ -46,7 +57,7 @@ description: Enforce coding standards in a separate review pass, not in the impl
      커밋 안 한 변경이 있으면 구현자에게 커밋을 받는다. 리뷰 커밋에 구현자 변경이 섞이면 누가 무엇을 바꿨는지 가를 수 없다.
    - diff: 기준점(브랜치 분기점·`main`·카드 시작 커밋)부터 `HEAD`까지.
    - 스펙: 이슈·카드·PRD의 해당 부분.
-   - `CODING_STANDARDS.md`.
+   - 사용자 공통 규칙 파일(있으면)과 저장소 `CODING_STANDARDS.md`(있으면). 둘 다 없으면 아래 3번 목록만으로 본다.
 2. **리뷰어를 하위 에이전트로 띄운다** (구현한 컨텍스트에서 직접 리뷰하지 않는다).
    - 두 축을 나눠 본다. 크면 하위 에이전트 둘로 병렬.
      - Standards: 저장소 규칙을 지켰나.

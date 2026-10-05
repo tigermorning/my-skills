@@ -115,6 +115,24 @@ python scripts/check_pr_body.py --gh 123              # 본문은 gh pr view, di
 - 출력 첫 줄 `review=full|light`가 사람의 리뷰 강도다.
 - 파일이 없거나 `gh`가 없으면 종료 코드 2. 본문 파일과 `--gh`를 함께 주면 종료 코드 2.
 
+### 나에게 위험한 변경 (사용자 공통 신호)
+
+- 기본 신호는 누구에게나 위험한 것뿐이다. 사람마다 다른 것(공개 저장소의 게시물, 밖으로 나가면 안 되는 비공개 자료 이름, 들여오면 라이선스를 봐야 하는 폴더)은 사용자 공통 규칙 파일에 적는다.
+- 파일 위치: `$REVIEW_STANDARDS` → `~/.claude/REVIEW_STANDARDS.md` → `~/.claude/references/review-standards.md` (먼저 찾은 것, [[standards-review]]의 "두 층"과 같은 파일). `--user-standards FILE`로 지정, `--no-user-standards`로 끔.
+- 그 파일 안 ```` ```one-way ```` 블록, 한 줄에 규칙 하나, 칸은 ` | `(앞뒤 빈칸)으로 나눈다:
+
+  ```
+  # 이름 | 저장소 | 어디 | 정규식 | 막기
+  블로그 글 게시 | my-blog | path | ^posts/[^/]+\.html$ |
+  비공개 자료 이름 | !private-* | content | (?i)secret-project | block
+  ```
+
+  - 저장소: 저장소 폴더 이름 글롭, 쉼표로 여럿(`!private-*,!game-proto`). `*`는 전부, `!글롭`은 그것을 뺌. 이름은 `--repo`, 없으면 지금 git 저장소 폴더 이름. 이름을 모르면 이름으로 좁힌 규칙은 돌지 않는다.
+  - 어디: `path`(diff 머리 줄 경로) 또는 `content`(바뀐 줄 — 문서 포함. README에 비공개 이름이 들어가도 새는 것이다).
+  - 막기(`block`·`막기`): 걸리면 Door 와 상관없이 실패. 비워 두면 기본 신호처럼 two-way 에 이유를 요구.
+- 걸린 신호는 `yours: <이름>`으로 나온다. 출력 첫 줄의 `user_rules=N from <파일>`로 무엇을 읽었는지 확인한다.
+- 정규식이 틀렸거나 칸이 모자라면 종료 코드 2 — 믿고 있는 규칙이 조용히 꺼지지 않게.
+
 ### CI·합치기 관문에 걸기
 
 - GitHub Actions: PR 이벤트에서 `python check_pr_body.py --gh ${{ github.event.pull_request.number }}`. 실패하면 본문 없는 PR이 사람에게 오지 않는다.

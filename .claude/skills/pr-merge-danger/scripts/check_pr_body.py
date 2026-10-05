@@ -6,9 +6,23 @@ Usage:
 
 Exit codes: 0 = body is complete, 1 = something is missing or contradicts the diff, 2 = usage or input error.
 The verdict line tells the human how hard to look: one-way door -> full review, two-way -> light review.
+
+Personal one-way signals: a user-level standards file (first found of $REVIEW_STANDARDS,
+~/.claude/REVIEW_STANDARDS.md, ~/.claude/references/review-standards.md; --user-standards to name one,
+--no-user-standards or REVIEW_STANDARDS="" to skip) may hold a fenced block tagged `one-way`:
+
+  name | repo | where | regex | block
+  blog post goes public | tigermorning.github.io | path | ^ko/[^/]+\\.html$ |
+  private material leaves its repo | !private-* | content | (?i)secret-project | block
+
+repo is comma-separated globs on the repository folder name (`*` = any, `!glob` = not these);
+where is `path` (file paths in diff headers) or `content` (added/removed lines, documents included);
+`block` makes a hit fail whatever the Door says.
 """
 import argparse
+import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -58,6 +72,81 @@ PATH_SIGNALS = [
 
 class InputError(Exception):
     pass
+
+
+USER_STANDARDS = ("~/.claude/REVIEW_STANDARDS.md", "~/.claude/references/review-standards.md")
+
+
+def find_user_standards(explicit=None, skip=False):
+    """Path of the user-level standards file, or None. An explicit path that is missing is an
+    error, because a rule the user wrote and believes is running must not vanish silently."""
+    if skip:
+        return None
+    if explicit:
+        p = Path(explicit).expanduser()
+        if not p.is_file():
+            raise InputError(f"user standards file not found: {explicit}")
+        return p
+    env = os.environ.get("REVIEW_STANDARDS")
+    if env is not None:
+        if not env.strip():
+            return None
+        return find_user_standards(env)
+    for c in USER_STANDARDS:
+        p = Path(c).expanduser()
+        if p.is_file():
+            return p
+    return None
+
+
+def load_user_signals(path):
+    """Rules from the ```one-way block of the user standards file."""
+    rules, in_block = [], False
+    for n, raw in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+        line = raw.strip()
+        if not in_block:
+            in_block = bool(re.match(r"^(`{3,}|~{3,})\s*one-way\s*$", line))
+            continue
+        if FENCE.match(line):
+            break
+        if not line or line.startswith("#"):
+            continue
+        # A cell boundary is a pipe with a space before it and a space or the line end after it, so an
+        # empty last cell ("regex |") does not glue " |" onto the regex as an always-true alternative.
+        cells = [c.strip() for c in re.split(r"\s\|(?=\s|$)", line)]
+        if len(cells) < 4 or cells[2] not in ("path", "content"):
+            raise InputError(f"{path}:{n}: one-way rule needs 'name | repo | path|content | regex [| block]'")
+        try:
+            pattern = re.compile(cells[3])
+        except re.error as e:
+            raise InputError(f"{path}:{n}: bad regex {cells[3]!r}: {e}")
+        if pattern.search(""):
+            raise InputError(f"{path}:{n}: regex {cells[3]!r} matches the empty string, so it would flag every change")
+        rules.append({"label": cells[0], "repo": cells[1] or "*", "where": cells[2], "pattern": pattern,
+                      "block": len(cells) > 4 and cells[4].lower() in ("block", "막기")})
+    return rules
+
+
+def repo_matches(spec, repo):
+    """spec: comma-separated globs; `!glob` excludes, plain globs (if any) must match one, `*` is any repo.
+    A rule scoped by name never runs when the repo name is unknown."""
+    globs = [g.strip() for g in spec.split(",") if g.strip()] or ["*"]
+    pos = [g for g in globs if not g.startswith("!")]
+    neg = [g[1:] for g in globs if g.startswith("!")]
+    if repo is None:
+        return pos == ["*"] and not neg
+    name = repo.lower()
+    if any(fnmatch.fnmatch(name, g.lower()) for g in neg):
+        return False
+    return not pos or any(g == "*" or fnmatch.fnmatch(name, g.lower()) for g in pos)
+
+
+def current_repo():
+    try:
+        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8")
+    except OSError:
+        return None
+    return Path(r.stdout.strip()).name if r.returncode == 0 and r.stdout.strip() else None
 
 
 def section_key(title):
@@ -161,14 +250,26 @@ def diff_paths(header):
     return [re.sub(r"^[ab]/", "", p)]
 
 
-def scan_diff(diff):
-    """One-way signal labels: path signals from header lines, content signals from +/- lines of
-    non-document files. '---'/'+++' inside a hunk is a changed line, not a header."""
+def scan_diff(diff, user_rules=(), repo=None):
+    return scan_signals(diff, user_rules, repo)[0]
+
+
+def scan_signals(diff, user_rules, repo):
+    """(one-way signal labels, user rules that matched): path signals from header lines, content signals from +/- lines of
+    non-document files. '---'/'+++' inside a hunk is a changed line, not a header.
+    User rules (already filtered by repo) also read documents: a private name in a README leaks too."""
     hits, in_hunk, doc = [], False, False
+    mine = [r for r in user_rules if repo_matches(r["repo"], repo)]
+    user_hits = []
 
     def add(label):
         if label not in hits:
             hits.append(label)
+
+    def add_user(rule):
+        if rule["label"] not in [u["label"] for u in user_hits]:
+            user_hits.append(rule)
+            add(f"yours: {rule['label']}")
 
     lines = diff.splitlines()
     for i, line in enumerate(lines):
@@ -183,6 +284,9 @@ def scan_diff(diff):
             if paths:
                 doc = all(DOC_FILE.search(p) for p in paths)
             for p in paths:
+                for rule in mine:
+                    if rule["where"] == "path" and rule["pattern"].search(p):
+                        add_user(rule)
                 if DOC_FILE.search(p):
                     continue
                 for pattern, label in PATH_SIGNALS:
@@ -192,14 +296,19 @@ def scan_diff(diff):
         if line.startswith("@@"):
             in_hunk = True
             continue
-        if line[:1] in ("+", "-") and not doc:
+        if line[:1] in ("+", "-"):
+            for rule in mine:
+                if rule["where"] == "content" and rule["pattern"].search(line[1:]):
+                    add_user(rule)
+            if doc:
+                continue
             for pattern, label in CONTENT_SIGNALS:
                 if pattern.search(line[1:]):
                     add(label)
-    return hits
+    return hits, user_hits
 
 
-def check(body, diff=None):
+def check(body, diff=None, user_rules=(), repo=None):
     problems, warnings = [], []
     sections = split_sections(body.lstrip("﻿"))
     for key in SECTIONS:
@@ -219,7 +328,10 @@ def check(body, diff=None):
             problems.append("Merge Danger needs 'Blast radius: <one word>', e.g. localized, module, users, data")
             radius = ""
 
-    hits = scan_diff(diff) if diff else []
+    hits, user_hits = scan_signals(diff, user_rules, repo) if diff else ([], [])
+    for rule in user_hits:
+        if rule["block"]:
+            problems.append(f"blocked by your one-way rule: {rule['label']} — take it out of this change")
     if hits and door == "two-way":
         warnings.append("diff has one-way signals (" + ", ".join(hits) + "); say why it is still two-way or mark it one-way")
         if not reason_of(danger, door_raw):
@@ -258,6 +370,9 @@ def main():
     ap.add_argument("body", nargs="?", help="markdown file with the PR body")
     ap.add_argument("--gh", metavar="PR", help="read the body and diff of this PR with the gh CLI")
     ap.add_argument("--diff", help="diff file to scan for one-way signals")
+    ap.add_argument("--user-standards", metavar="FILE", help="user-level standards file with a ```one-way block")
+    ap.add_argument("--no-user-standards", action="store_true", help="ignore the user-level standards file")
+    ap.add_argument("--repo", help="repository folder name for repo-scoped rules (default: this git checkout)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     # Korean text must survive a Windows console whose default codec is cp949.
@@ -275,15 +390,21 @@ def main():
         else:
             body = read_text_file(a.body, "body")
             diff = read_text_file(a.diff, "diff") if a.diff else None
+        std = find_user_standards(a.user_standards, a.no_user_standards)
+        rules = load_user_signals(std) if std else []
     except InputError as e:
         print(e, file=sys.stderr)
         return 2
 
-    rep = check(body, diff)
+    repo = a.repo or current_repo()
+    rep = check(body, diff, rules, repo)
+    rep["user_standards"] = str(std) if std else None
+    rep["repo"] = repo
     if a.json:
         print(json.dumps(rep, ensure_ascii=False, indent=2))
     else:
-        print(f"door={rep['door']} blast_radius={rep['blast_radius']} review={rep['review']}")
+        print(f"door={rep['door']} blast_radius={rep['blast_radius']} review={rep['review']}"
+              f" user_rules={len(rules)}{' from ' + rep['user_standards'] if std else ''}")
         for p in rep["problems"]:
             print(f"FAIL {p}")
         for w in rep["warnings"]:

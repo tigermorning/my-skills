@@ -1,0 +1,11 @@
+{
+  "base": "main",
+  "checks": ["python -m pytest -q"],
+  "check_env": {"CI": "1"},
+  "auto_merge": false,
+  "max_changed_lines": 400,
+  "protected_paths": [".github/", "migrations/"],
+  "after_merge": [],
+  "review": {"enabled": true, "max_turns": 40, "model": null, "timeout_sec": 1800, "door_runs": 3, "door_max_turns": 15},
+  "ci_timeout_sec": 900
+}

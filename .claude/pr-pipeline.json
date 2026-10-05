@@ -1,0 +1,11 @@
+{
+  "base": "master",
+  "checks": ["python scripts/check_skills.py"],
+  "check_env": {"CI": "1"},
+  "auto_merge": false,
+  "max_changed_lines": 400,
+  "protected_paths": [".github/", "scripts/hooks/", "scripts/check_skills.py"],
+  "after_merge": ["python scripts/cleanup_merged_branch.py {branch}"],
+  "review": {"enabled": true, "max_turns": 40, "model": null, "timeout_sec": 1800},
+  "ci_timeout_sec": 900
+}
