@@ -1,0 +1,8 @@
+{
+  "skill_sha256": "5c149ed2e6cda2e954b943fb1575d2c9b62f55ab15999ae48108716c7abf2e07",
+  "date": "2026-10-05",
+  "model": "sonnet",
+  "passed": 9,
+  "total": 9,
+  "note": "pilot: run_evals.py 1 eval x skill,baseline x sonnet x 1, judge=opus. skill 9/9 (204s, ~0.91M tokens mostly cache reads, $0.54 CLI-reported). baseline 7/9 after a grader fix (replay check missed '<merge>^2'); baseline read ~/.claude/references/merge-gate-git-notes.md through the global CLAUDE.md, so it measured 'notes only', not 'nothing'"
+}

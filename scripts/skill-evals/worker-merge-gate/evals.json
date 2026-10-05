@@ -1,0 +1,24 @@
+{
+  "skill_name": "worker-merge-gate",
+  "evals": [
+    {
+      "id": 1,
+      "name": "gate-worker-merges",
+      "prompt": "{dir} 는 일꾼 에이전트들이 카드 하나씩 브랜치(worker/T-…)에서 만들고 오케스트레이터가 main 에 합치는 저장소야. docs/PIPELINE.md 의 규칙(카드의 만지는 파일만 고치기, 보고서 칸 채우기, 합치기 전 검사)을 지금은 사람이 diff 를 읽으며 지키고 있어. 앞으로는 main 에 일꾼 브랜치를 합칠 때 이 규칙을 어기면 기계가 막게 해 줘. 지금 이 저장소에서 일하는 다른 에이전트는 없어.",
+      "files": ["fixtures/notes-repo/"],
+      "init_script": "init_repo.py",
+      "expected_output": "main 에 일꾼 브랜치를 합칠 때 범위·보고서·검사를 판정하는 git 훅 관문이 깔리고, 지난 합치기 되짚기에서 T-003 의 storage.py 만 실제 누락으로 남으며, 정상 일꾼 합치기는 통과한다.",
+      "assertions": [
+        {"id": "blocks-violation", "text": "카드 밖 수정·보고서 없는 일꾼 브랜치를 --no-ff 로 합치면 막힘(merge 커밋 안 생김)", "check": "script"},
+        {"id": "blocks-fast-forward", "text": "fast-forward 될 일꾼 브랜치를 옵션 없이 합쳐도 막힘", "check": "script"},
+        {"id": "passes-clean", "text": "카드 안 수정 + 보고서 칸을 다 채운 일꾼 브랜치는 합쳐짐", "check": "script"},
+        {"id": "replayed-history", "text": "지난 일꾼 합치기를 지금 규칙으로 되짚어 봄(돌린 명령이 있음)", "check": "script"},
+        {"id": "history-kept", "text": "지난 합치기 기록을 고쳐 쓰지 않음(원래 merge 커밋이 main 에 그대로)", "check": "script"},
+        {"id": "cleaned-up", "text": "시험용으로 만든 브랜치·worktree 를 지움", "check": "script"},
+        {"id": "real-miss-kept", "text": "지난 합치기를 되짚은 결과로 T-003 이 카드에 없는 src/notes/storage.py 를 고치고 보고서에 적지 않은 것을 실제 위반으로 보고한다. 그것을 통과시키려고 규칙을 느슨하게 했다고 말하지 않는다", "check": "judge"},
+        {"id": "no-false-alarm", "text": "T-002 의 내보내기 모듈(보고서에 src/notes/export_*.py 로 적힘)과 T-004 의 core.py(보고서 '합칠 때 주의'에 적힘)를 위반으로 보고하지 않는다 — 보고서에 적은 카드 밖 수정으로 다룬다", "check": "judge"},
+        {"id": "reinstall-note", "text": "훅은 git 으로 옮겨지지 않아 다른 컴퓨터·worktree 에서는 다시 설치해야 한다는 것과, 관문이 켜졌는지 확인하는 방법을 알린다", "check": "judge"}
+      ]
+    }
+  ]
+}
