@@ -550,6 +550,93 @@ def g_map_update(job, calls):
     ]
 
 
+# ---- worker-merge-gate: probe the gate the agent left, with branches it never saw
+
+GATE_REPO_VARS = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR"}
+
+
+def _gate_git(job, *args, env=None):
+    return subprocess.run(["git", *args], cwd=job, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def _probe_branch(job, env, name, base, files):
+    """A branch with `files` changed on top of `base`, built without touching the agent's working tree."""
+    import tempfile
+    idx = Path(tempfile.mkdtemp(prefix="probe-index-")) / "index"
+    penv = {**env, "GIT_INDEX_FILE": str(idx)}
+    _gate_git(job, "read-tree", base, env=penv)
+    for rel, text in files.items():
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=job, env=env, input=text.encode("utf-8"),
+                              capture_output=True).stdout.decode().strip()
+        _gate_git(job, "update-index", "--add", "--cacheinfo", f"100644,{blob},{rel}", env=penv)
+    tree = _gate_git(job, "write-tree", env=penv).stdout.strip()
+    commit = _gate_git(job, "commit-tree", tree, "-p", base, "-m", f"work on {name}", env=env).stdout.strip()
+    _gate_git(job, "update-ref", f"refs/heads/{name}", commit, env=env)
+    return commit
+
+
+def _gate_try_merge(job, env, args):
+    """Merge on main; report (exit code, a merge commit was made). Leaves main as it was when blocked."""
+    before = _gate_git(job, "rev-parse", "HEAD", env=env).stdout.strip()
+    r = _gate_git(job, "merge", *args, env=env)
+    after = _gate_git(job, "rev-parse", "HEAD", env=env).stdout.strip()
+    made = after != before
+    if not made or r.returncode != 0:
+        _gate_git(job, "merge", "--abort", env=env)
+        _gate_git(job, "reset", "-q", "--merge", env=env)
+    return r.returncode, made, before, after, (r.stdout + r.stderr).strip()[-160:]
+
+
+def g_merge_gate(job, calls):
+    job = Path(job)
+    names = ["카드 밖 수정·보고서 없는 일꾼 브랜치를 --no-ff 로 합치면 막힘(merge 커밋 안 생김)",
+             "fast-forward 될 일꾼 브랜치를 옵션 없이 합쳐도 막힘",
+             "카드 안 수정 + 보고서 칸을 다 채운 일꾼 브랜치는 합쳐짐",
+             "지난 일꾼 합치기를 지금 규칙으로 되짚어 봄(돌린 명령이 있음)",
+             "지난 합치기 기록을 고쳐 쓰지 않음(원래 merge 커밋이 main 에 그대로)",
+             "시험용으로 만든 브랜치·worktree 를 지움"]
+    base_file = job / ".git" / "eval-baseline.json"
+    if not base_file.exists():
+        return [exp(n, False, "no git history in the job dir") for n in names]
+    baseline = json.loads(base_file.read_text(encoding="utf-8"))
+    env = {k: v for k, v in __import__("os").environ.items() if k not in GATE_REPO_VARS}
+    env.update({"GIT_AUTHOR_NAME": "grader", "GIT_AUTHOR_EMAIL": "g@example.com", "GIT_COMMITTER_NAME": "grader", "GIT_COMMITTER_EMAIL": "g@example.com"})
+
+    branches_now = set(_gate_git(job, "branch", "--format=%(refname:short)", env=env).stdout.split())
+    worktrees = [l for l in _gate_git(job, "worktree", "list", "--porcelain", env=env).stdout.splitlines() if l.startswith("worktree ")]
+    leftover = sorted(branches_now - set(baseline["branches"]))
+    kept_history = all(_gate_git(job, "merge-base", "--is-ancestor", m, "main", env=env).returncode == 0 for m in baseline["merges"])
+    shell = " ".join(shell_commands(calls)).lower()
+    # a replay names past merges somehow: the kit's --retro, a merges listing, or a merge's second parent (<merge>^2)
+    replayed = "--retro" in shell or re.search(r"--merges|--min-parents|\^2\b|--grep[= ]?[\"']?merge", shell) is not None
+
+    if _gate_git(job, "branch", "--show-current", env=env).stdout.strip() != "main":
+        _gate_git(job, "switch", "-q", "main", env=env)
+    main_tip = _gate_git(job, "rev-parse", "main", env=env).stdout.strip()
+    show = lambda rel: _gate_git(job, "show", f"{main_tip}:{rel}", env=env).stdout  # noqa: E731
+    bad_core = show("src/notes/core.py") + "\n\ndef probe():\n    return 1\n"
+    ok_cli = show("src/notes/cli.py") + "\n\ndef find_count(notes, word):\n    return len(notes.find(word))\n"
+    ok_report = ("# T-005 보고\n\n## 한 것\n\n- `find_count` 더함\n\n## 확인(명령 → 결과 숫자)\n\n"
+                 "- `python scripts/check.py` → 6개 통과\n\n## 막힌 것\n\n- 없음\n\n## 합칠 때 주의\n\n- 없음\n")
+    _probe_branch(job, env, "worker/T-005-a", main_tip, {"src/notes/core.py": bad_core})
+    _probe_branch(job, env, "worker/T-005-b", main_tip, {"src/notes/core.py": bad_core})
+    _probe_branch(job, env, "worker/T-005-c", main_tip, {"src/notes/cli.py": ok_cli, "docs/reports/T-005.md": ok_report})
+
+    code1, made1, *_rest1, out1 = _gate_try_merge(job, env, ["--no-ff", "worker/T-005-a", "-m", "merge: T-005 probe a"])
+    code2, made2, *_rest2, out2 = _gate_try_merge(job, env, ["worker/T-005-b"])
+    code3, made3, before3, after3, out3 = _gate_try_merge(job, env, ["--no-ff", "worker/T-005-c", "-m", "merge: T-005 probe c"])
+    parents3 = len(_gate_git(job, "log", "-1", "--format=%P", after3, env=env).stdout.split()) if made3 else 0
+
+    return [
+        exp(names[0], code1 != 0 and not made1, f"exit={code1} merged={made1} {out1[-90:]!r}"),
+        exp(names[1], not made2, f"exit={code2} merged={made2} {out2[-90:]!r}"),
+        exp(names[2], code3 == 0 and made3 and parents3 == 2, f"exit={code3} merged={made3} parents={parents3} {out3[-90:]!r}"),
+        exp(names[3], replayed, "found a replay command" if replayed else "no --retro / log --merges in shell commands"),
+        exp(names[4], kept_history, "all original merges still on main" if kept_history else "a past merge is gone from main"),
+        exp(names[5], not leftover and len(worktrees) == 1, f"extra branches={leftover} worktrees={len(worktrees)}"),
+    ]
+
+
 GRADERS = {
     "map-new-ui-app": g_map_new,
     "update-map-after-change": g_map_update,
@@ -564,6 +651,7 @@ GRADERS = {
     "new-project-gate": g_kickoff_gate,
     "spike-skips-gate": g_spike,
     "guardrails-before-first-feature": g_guardrails,
+    "gate-worker-merges": g_merge_gate,
 }
 
 if __name__ == "__main__":

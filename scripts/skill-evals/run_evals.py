@@ -245,7 +245,7 @@ def one_run(task, args, grade, pf):
     try:
         with open(transcript, "w", encoding="utf-8") as out:
             proc = job_handle.popen([CLAUDE, "-p", "--model", model, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose",
-                                     "--disallowedTools", "Skill"],
+                                     "--disallowedTools", "Skill", *args.agent_args.split()],
                                     stdin=subprocess.PIPE, stdout=out, stderr=subprocess.DEVNULL, cwd=job)
             try:
                 proc.communicate(prompt.encode("utf-8"), timeout=args.timeout)
@@ -340,6 +340,9 @@ def main():
     ap.add_argument("--judge-model", default="opus")
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--timeout", type=int, default=600)
+    # e.g. "--setting-sources project,local": the agent then skips the user's settings and hooks, which
+    # otherwise run inside every eval (style hooks shape the report, sync hooks touch other repos)
+    ap.add_argument("--agent-args", default="", help="extra arguments for every agent's claude -p, space-separated")
     ap.add_argument("--fail-under", type=float, default=None)
     ap.add_argument("--record", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
