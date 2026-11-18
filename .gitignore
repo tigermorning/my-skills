@@ -1,2 +1,5 @@
 .omc/
 __pycache__/
+
+# 세션 대화를 그대로 저장한 원본 — 공개 저장소에 올리지 않는다(정리본 session-log.md 만 올림)
+.claude/memory/inbox/
