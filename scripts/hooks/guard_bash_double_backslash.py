@@ -32,6 +32,11 @@ def main():
     payload = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
     reason = decide(payload)
     if reason:
+        try:
+            from gate_log import log
+            log("guard-bash-double-backslash", "deny", reason)
+        except Exception:
+            pass
         sys.stdout.reconfigure(encoding="utf-8")
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
